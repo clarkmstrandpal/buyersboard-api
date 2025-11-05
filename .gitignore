@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.aws-sam/
+sam_build/
+sam_cache/
+.env*
+env.*
+*.pem
+.DS_Store
+Thumbs.db
+*.zip
+*.tar.gz
+*.bak

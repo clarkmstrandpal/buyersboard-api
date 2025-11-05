@@ -1,0 +1,254 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: BuyersBoard MVP - API + Ingest + Matching + Ops
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: { Ref: Stage }
+        TABLE_LEADS: { Ref: LeadsTable }
+        TABLE_AGENTS: { Ref: AgentsTable }
+        TABLE_CLAIMS: { Ref: ClaimsTable }
+        TABLE_SENDLOG: { Ref: SendLogTable }
+        SES_FROM: { Ref: SesFrom }
+        PUBLIC_BASE: { Ref: PublicBase }
+        HMAC_SECRET_PARAM: { Ref: HmacSecretParam }
+        SLACK_ROUTE_PARAM: { Ref: SlackRouteParam }
+        ALLOWED_ORIGINS: { Ref: AllowedOrigins }
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  SesFrom:
+    Type: String
+    Default: "noreply@example.com"
+  PublicBase:
+    Type: String
+    Default: "https://example.com"
+  HmacSecretParam:
+    Type: String
+    Default: "/buyersboard/{stage}/hmac_secret"
+  SlackRouteParam:
+    Type: String
+    Default: "/buyersboard/{stage}/slack_routes"
+  AllowedOrigins:
+    Type: String
+    Default: "*"
+
+Resources:
+
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Stage
+      TracingEnabled: true
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,X-Signature,X-Timestamp'"
+        AllowOrigin: "'${AllowedOrigins}'"
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/ingest/
+      Handler: app.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeadsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AgentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SendLogTable
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Sid: SesSend
+            Effect: Allow
+            Action: ses:SendEmail
+            Resource: "*"
+        - Statement:
+            Sid: SSMParams
+            Effect: Allow
+            Action: 
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource: "*"
+      Events:
+        IngestPost:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /v1/ingest
+            Method: POST
+
+  PreviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/preview/
+      Handler: app.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref LeadsTable
+      Events:
+        PreviewGet:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /v1/preview
+            Method: GET
+
+  ClaimFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/claim/
+      Handler: app.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ClaimsTable
+      Events:
+        ClaimPost:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /v1/claim
+            Method: POST
+
+  RouterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/router/
+      Handler: app.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AgentsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref LeadsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SendLogTable
+        - Statement:
+            Sid: SSMParams
+            Effect: Allow
+            Action: 
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource: "*"
+      Events:
+        RouterPost:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /v1/router
+            Method: POST
+
+  FinOpsDigestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/ops_finops_digest/
+      Handler: app.handler
+      Policies:
+        - Statement:
+            Sid: SSMParams
+            Effect: Allow
+            Action: 
+              - ssm:GetParameter
+            Resource: "*"
+      Events:
+        DailyRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+
+  AlertsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/ops_alerts/
+      Handler: app.handler
+      Policies:
+        - Statement:
+            Sid: SSMParams
+            Effect: Allow
+            Action: 
+              - ssm:GetParameter
+            Resource: "*"
+
+  LeadsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: lead_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: lead_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi_created_at
+          KeySchema:
+            - AttributeName: created_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  AgentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: agent_id
+          AttributeType: S
+        - AttributeName: zip
+          AttributeType: S
+      KeySchema:
+        - AttributeName: agent_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi_zip
+          KeySchema:
+            - AttributeName: zip
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  ClaimsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: claim_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: claim_id
+          KeyType: HASH
+
+  SendLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: log_id
+          AttributeType: S
+        - AttributeName: sent_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: log_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi_sent_at
+          KeySchema:
+            - AttributeName: sent_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Description: "Base URL of the BuyersBoard API"

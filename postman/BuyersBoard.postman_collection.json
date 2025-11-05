@@ -1,0 +1,104 @@
+{
+  "info": {
+    "name": "BuyersBoard API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Ingest Lead (signed)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Timestamp",
+            "value": "{{timestamp}}"
+          },
+          {
+            "key": "X-Signature",
+            "value": "{{signature}}"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base}}/v1/ingest",
+          "host": [
+            "{{api_base}}"
+          ],
+          "path": [
+            "v1",
+            "ingest"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\": \"Test\", \"email\": \"lead@example.com\", \"zip\": \"33067\", \"price\": 500000, \"beds\": 3, \"baths\": 2}"
+        }
+      }
+    },
+    {
+      "name": "Preview Leads",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base}}/v1/preview",
+          "host": [
+            "{{api_base}}"
+          ],
+          "path": [
+            "v1",
+            "preview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Claim",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base}}/v1/claim",
+          "host": [
+            "{{api_base}}"
+          ],
+          "path": [
+            "v1",
+            "claim"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"lead_id\": \"LEAD123\", \"notes\": \"Test claim\"}"
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "api_base",
+      "value": "https://your-api-id.execute-api.us-east-1.amazonaws.com/dev"
+    },
+    {
+      "key": "timestamp",
+      "value": ""
+    },
+    {
+      "key": "signature",
+      "value": ""
+    }
+  ]
+}

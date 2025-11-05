@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "BuyersBoard MVP \xE2\u20AC\u201D HTTP API (v2) with CORS + DynamoDB\
+  \ Leads table"
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+Parameters:
+  EnvStage:
+    Type: String
+    Default: dev
+Resources:
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: buyersboard-common
+      ContentUri: s3://buyerboard-public-457532147/72575632f0e208b3f78ce907cf4bce98
+      CompatibleRuntimes:
+      - python3.11
+      RetentionPolicy: Delete
+    Metadata:
+      SamResourceId: CommonLayer
+  LeadsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: buyersboard_leads
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+    Metadata:
+      SamResourceId: LeadsTable
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName:
+        Ref: EnvStage
+      CorsConfiguration:
+        AllowHeaders:
+        - Content-Type
+        - Authorization
+        - X-Api-Key
+        - X-Amz-Date
+        - X-Amz-Security-Token
+        AllowMethods:
+        - OPTIONS
+        - POST
+        - GET
+        AllowOrigins:
+        - '*'
+        MaxAge: 600
+    Metadata:
+      SamResourceId: HttpApi
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://buyerboard-public-457532147/589fdd688b0bb030690d95d721d992d3
+      Handler: app.lambda_handler
+      Layers:
+      - Ref: CommonLayer
+      Environment:
+        Variables:
+          TABLE_LEADS:
+            Ref: LeadsTable
+          CORS_ORIGIN: '*'
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: LeadsTable
+      Events:
+        IngestRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /v1/ingest
+            Method: POST
+            PayloadFormatVersion: '2.0'
+    Metadata:
+      SamResourceId: IngestFunction
+  PreviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://buyerboard-public-457532147/6cda411a212dfe980eeb41f6c64f6462
+      Handler: app.lambda_handler
+      Layers:
+      - Ref: CommonLayer
+      Environment:
+        Variables:
+          CORS_ORIGIN: '*'
+      Events:
+        PreviewRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /v1/preview
+            Method: POST
+            PayloadFormatVersion: '2.0'
+    Metadata:
+      SamResourceId: PreviewFunction
+  RouterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://buyerboard-public-457532147/9ad7cd6d1e674b9e7e766c8a9a2f9a57
+      Handler: app.lambda_handler
+      Layers:
+      - Ref: CommonLayer
+      Environment:
+        Variables:
+          CORS_ORIGIN: '*'
+      Events:
+        RouterRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /v1/router
+            Method: POST
+            PayloadFormatVersion: '2.0'
+    Metadata:
+      SamResourceId: RouterFunction
+Outputs:
+  ApiUrl:
+    Description: HTTP API base URL
+    Value:
+      Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${EnvStage}
+  LeadsTableName:
+    Description: DynamoDB table for leads
+    Value:
+      Ref: LeadsTable

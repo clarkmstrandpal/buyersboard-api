@@ -1,0 +1,337 @@
+﻿AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: BuyersBoard MVP — HTTP API (v2) with CORS + DynamoDB Leads table
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+
+Parameters:
+  EnvStage:
+    Type: String
+    Default: dev
+
+Resources:
+  LeadsClaimFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: leads_claim/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_LEADS: buyersboard_leads
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: buyersboard_leads
+      Events:
+        ApiClaim:
+          Type: HttpApi
+          Properties:
+            Path: /v1/leads/claim
+            Method: POST
+  LeadsClaimFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: leads_claim/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_LEADS: buyersboard_leads
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+                - dynamodb:GetItem
+              Resource: !GetAtt LeadsTable.Arn
+      Events:
+        ApiClaim:
+          Type: HttpApi
+          Properties:
+            Path: /v1/leads/claim
+            Method: POST
+  # ---------- HTTP API (API Gateway v2) with simple CORS ----------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref EnvStage
+      CorsConfiguration:
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Api-Key
+          - X-Amz-Date
+          - X-Amz-Security-Token
+        AllowMethods:
+          - OPTIONS
+          - POST
+          - GET
+        # TEMP for launch — after CloudFront + domain, tighten to https://listlyhomes.com
+        AllowOrigins:
+          - "*"
+        MaxAge: 600
+
+  # ---------- DynamoDB: Leads ----------
+  LeadsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: buyersboard_leads
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # ---------- Shared Layer (your common helpers) ----------
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: buyersboard-common
+      # This folder should contain a "python" dir with your common package inside:
+      # lambdas/common/python/common/...
+      ContentUri: lambdas/common
+      CompatibleRuntimes:
+        - python3.11
+      RetentionPolicy: Delete
+
+  # ---------- Lambda: /v1/leads/list ----------
+  LeadsListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/leads_list/
+      Handler: app.handler
+      Runtime: python3.11
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_LEADS: buyersboard_leads
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: buyersboard_leads
+      Events:
+        GetLeadsList:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi          # <— critical: attach to shared API
+            Path: /v1/leads/list
+            Method: GET
+            PayloadFormatVersion: '2.0'
+
+  # ---------- Lambda: /v1/ingest ----------
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/ingest/
+      Handler: app.lambda_handler
+      Layers: [ !Ref CommonLayer ]
+      Environment:
+        Variables:
+          TABLE_LEADS: !Ref LeadsTable
+          # tighten later to your domain once CloudFront+DNS are live
+          CORS_ORIGIN: "*"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeadsTable
+      Events:
+        IngestRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/ingest
+            Method: POST
+            PayloadFormatVersion: '2.0'
+
+  # ---------- Lambda: /v1/preview ----------
+  PreviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/preview/
+      Handler: app.lambda_handler
+      Layers: [ !Ref CommonLayer ]
+      Environment:
+        Variables:
+          CORS_ORIGIN: "*"
+      Events:
+        PreviewRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/preview
+            Method: POST
+            PayloadFormatVersion: '2.0'
+
+  # ---------- Lambda: /v1/router ----------
+  RouterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/router/
+      Handler: app.lambda_handler
+      Layers: [ !Ref CommonLayer ]
+      Environment:
+        Variables:
+          CORS_ORIGIN: "*"
+      Events:
+        RouterRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/router
+            Method: POST
+            PayloadFormatVersion: '2.0'
+
+  # ---------- Lambda: /v1/agents/* (login, me) ----------
+  AgentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: agents_function/
+      Handler: app.handler
+      Runtime: python3.11
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_AGENTS: buyersboard_agents
+          JWT_SECRET_PARAM: /buyersboard/dev/jwt_secret
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action: [ "dynamodb:Query" ]
+            Resource:
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/buyersboard_agents/index/email_index
+        - Statement:
+            Effect: Allow
+            Action: [ "ssm:GetParameter" ]
+            Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/buyersboard/dev/jwt_secret
+      Events:
+        AgentsLogin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/agents/login
+            Method: POST
+            PayloadFormatVersion: '2.0'
+        AgentsMe:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/agents/me
+            Method: GET
+            PayloadFormatVersion: '2.0'
+
+  # ---------- Lambda: /v1/leads/summary ----------
+  LeadsSummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: leads_summary_function/
+      Handler: app.handler
+      Runtime: python3.11
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_LEADS: buyersboard_leads
+          JWT_SECRET_PARAM: /buyersboard/dev/jwt_secret
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action: [ "dynamodb:Query" ]
+            Resource:
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/buyersboard_leads/index/agent_id_created_index
+        - Statement:
+            Effect: Allow
+            Action: [ "ssm:GetParameter" ]
+            Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/buyersboard/dev/jwt_secret
+      Events:
+        LeadsSummary:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/summary
+            Method: GET
+            PayloadFormatVersion: '2.0'
+
+  # If/when you need Claim later, uncomment and adapt:
+  # ClaimFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: lambdas/claim/
+  #     Handler: app.lambda_handler
+  #     Layers: [ !Ref CommonLayer ]
+  #     Environment:
+  #       Variables:
+  #         CORS_ORIGIN: "*"
+  #     Events:
+  #       ClaimRoute:
+  #         Type: HttpApi
+  #         Properties:
+  #           ApiId: !Ref HttpApi
+  #           Path: /v1/claim
+  #           Method: POST
+  #           PayloadFormatVersion: '2.0'
+
+Outputs:
+  ApiUrl:
+    Description: HTTP API base URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${EnvStage}"
+  LeadsTableName:
+    Description: DynamoDB table for leads
+    Value: !Ref LeadsTable
+
+# --- Leads actions added 20251102_172057 ---
+  LeadsActionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: handlers/leads_actions/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_LEADS: buyersboard_leads
+          CLAIM_WINDOW_SEC: 600
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: buyersboard_leads
+      Events:
+        Claim:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/claim
+            Method: POST
+        Archive:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/archive
+            Method: POST
+        Close:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/close
+            Method: POST
+        Reopen:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/reopen
+            Method: POST
+
+

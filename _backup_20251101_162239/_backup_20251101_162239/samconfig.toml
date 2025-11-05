@@ -1,0 +1,15 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "buyersboard-mvp"
+resolve_s3 = true
+s3_prefix = "buyersboard-mvp"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "Stage=\"dev\" SesFrom=\"cpechostrike@gmail.com\" PublicBase=\"http://buyerboard-public-457532147.s3-website-us-east-1.amazonaws.com\" HmacSecretParam=\"/buyersboard/dev/hmac_secret\" SlackRouteParam=\"/buyersboard/dev/slack_routes\" AllowedOrigins=\"http://buyerboard-public-457532147.s3-website-us-east-1.amazonaws.com\""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-1"
