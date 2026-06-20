@@ -14,7 +14,30 @@ Parameters:
     Type: String
     Default: dev
 
-Resources:
+Resources:
+  ClaimFunctionV2:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.12
+      Handler: app.handler
+      CodeUri: src/claim_v2/
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          TABLE_LEADS: buyersboard_leads
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: buyersboard_leads
+      Events:
+        PostClaimV2:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/claim
+            Method: POST
+
+
   LeadsClaimFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -291,47 +314,3 @@ Outputs:
   LeadsTableName:
     Description: DynamoDB table for leads
     Value: !Ref LeadsTable
-
-# --- Leads actions added 20251102_172057 ---
-  LeadsActionFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: handlers/leads_actions/
-      Handler: app.handler
-      Runtime: python3.12
-      Timeout: 10
-      MemorySize: 256
-      Environment:
-        Variables:
-          TABLE_LEADS: buyersboard_leads
-          CLAIM_WINDOW_SEC: 600
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: buyersboard_leads
-      Events:
-        Claim:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/claim
-            Method: POST
-        Archive:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/archive
-            Method: POST
-        Close:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/close
-            Method: POST
-        Reopen:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/reopen
-            Method: POST
-
-
