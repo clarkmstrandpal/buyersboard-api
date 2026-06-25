@@ -2,20 +2,24 @@
 
 Discovery Inbox stores raw candidate leads before they become normal agent leads. Candidate leads are for internal market validation and review. Normal leads remain the records served by the existing `/v1/ingest`, `/v1/leads/list`, auth, and claim workflow.
 
+All `/v1/candidates/*` routes require a valid agent Bearer token from `/v1/agents/login`. Missing, expired, or invalid tokens return `401`. OPTIONS preflight remains available for CORS.
+
 ## Candidate Import Flow
 
 Import candidate leads into the candidate table with:
 
 ```bash
 python3 tools/candidate_import.py samples/broward_candidates.sample.json --dry-run
-python3 tools/candidate_import.py samples/broward_candidates.sample.json
+python3 tools/candidate_import.py samples/broward_candidates.sample.json --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
 ```
 
-Use a different backend URL:
+Use a different sample:
 
 ```bash
 python3 tools/candidate_import.py samples/northwest_ar_candidates.sample.json --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
 ```
+
+The local tool validates JSON and supports dry runs. Actual POST requests must include `Authorization: Bearer YOUR_AGENT_TOKEN`; pass that header from an API client when calling the import endpoint directly.
 
 The API route is `POST /v1/candidates/import`. It accepts either a JSON array or `{ "items": [...] }`. Each imported item receives a `candidate_id`, `created_at`, `created_ts`, and default `status` of `new` when missing. If `source_url` already exists, the importer skips the duplicate and reports it in the summary.
 
@@ -24,8 +28,8 @@ The API route is `POST /v1/candidates/import`. It accepts either a JSON array or
 List candidates with:
 
 ```bash
-curl "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/list?market_slug=broward-fl&limit=20"
-curl "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/list?market_slug=northwest-ar&status=new"
+curl -H "Authorization: Bearer YOUR_AGENT_TOKEN" "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/list?market_slug=broward-fl&limit=20"
+curl -H "Authorization: Bearer YOUR_AGENT_TOKEN" "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/list?market_slug=northwest-ar&status=new"
 ```
 
 Supported filters include `market_slug`, `market`, `county`, `city`, `zip`, `state`, `source`, `status`, `intent_guess`, and `role_guess`. The response includes `items` and `next_cursor`.
@@ -34,6 +38,7 @@ Mark a candidate after review:
 
 ```bash
 curl -X POST "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/action" \
+  -H "Authorization: Bearer YOUR_AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"candidate_id":"CANDIDATE_ID","action":"good","review_notes":"Looks relevant"}'
 ```
@@ -46,6 +51,7 @@ Promote a reviewed candidate into the existing normal leads table:
 
 ```bash
 curl -X POST "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/action" \
+  -H "Authorization: Bearer YOUR_AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"candidate_id":"CANDIDATE_ID","action":"send_to_leads","review_notes":"Promoted for agent workflow"}'
 ```
