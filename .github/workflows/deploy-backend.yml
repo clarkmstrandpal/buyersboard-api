@@ -34,8 +34,8 @@ jobs:
       - name: Validate SAM template
         run: sam validate --region ${{ env.AWS_REGION }}
 
-      - name: Build SAM app
-        run: sam build
+      - name: Build SAM app using containers
+        run: sam build --use-container
 
       - name: Deploy SAM app
         run: |
