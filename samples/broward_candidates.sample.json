@@ -1,0 +1,51 @@
+[
+  {
+    "title": "Looking for a townhome near Deerfield Beach",
+    "snippet": "Family relocating this summer and comparing townhomes close to schools and I-95.",
+    "message": "Need a 3 bedroom place around Deerfield or Coconut Creek. Preapproval is in progress.",
+    "source": "public_forum",
+    "source_url": "https://example.com/broward/public-forum/sample-1",
+    "market": "Broward County",
+    "market_slug": "broward-fl",
+    "county": "Broward",
+    "city": "Deerfield Beach",
+    "state": "FL",
+    "zip": "33442",
+    "role_guess": "buyer",
+    "intent_guess": "buy",
+    "intent_score": 0.83,
+    "search_query": "Deerfield Beach buyer looking for townhome"
+  },
+  {
+    "title": "Considering selling inherited condo in Fort Lauderdale",
+    "snippet": "Poster is asking how to estimate value before hiring an agent.",
+    "message": "Inherited a condo near downtown Fort Lauderdale and trying to decide whether to sell as-is.",
+    "source": "reddit",
+    "source_url": "https://example.com/broward/reddit/sample-2",
+    "market": "Broward County",
+    "market_slug": "broward-fl",
+    "county": "Broward",
+    "city": "Fort Lauderdale",
+    "state": "FL",
+    "role_guess": "seller",
+    "intent_guess": "sell",
+    "intent_score": 0.78,
+    "search_query": "Fort Lauderdale inherited condo sell"
+  },
+  {
+    "title": "Investor looking for duplexes in Pompano Beach",
+    "snippet": "Cash buyer comparing small multifamily properties with renovation upside.",
+    "message": "Looking for duplex or triplex leads in Pompano, Plantation, or Hollywood.",
+    "source": "public_web",
+    "source_url": "https://example.com/broward/public-web/sample-3",
+    "market": "Broward County",
+    "market_slug": "broward-fl",
+    "county": "Broward",
+    "city": "Pompano Beach",
+    "state": "FL",
+    "role_guess": "buyer",
+    "intent_guess": "invest",
+    "intent_score": 0.72,
+    "search_query": "Broward duplex investor lead"
+  }
+]
