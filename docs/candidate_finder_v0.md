@@ -1,8 +1,18 @@
-# Candidate Finder v0
+# Lead Scout Core v1
 
-Candidate Finder is a local, public-search-only discovery helper for the ListlyHomes Discovery Inbox. It uses `tools/market_packs.json` query templates, searches public web result pages, normalizes results into candidate lead JSON, deduplicates by `source_url`, and can import the results into the authenticated `/v1/candidates/import` endpoint.
+`tools/candidate_finder.py` is a local, public-source discovery tool for the ListlyHomes Discovery Inbox. PR #8 keeps the original file name, but the behavior is Lead Scout Core v1: a reusable scout that supports vertical-specific query templates and scoring rules, starting with `real_estate`.
 
-It does not add a backend route, does not change AWS/SAM resources, and does not scrape private or logged-in sites.
+The tool does not add an API route, does not change AWS/SAM resources, and does not scrape private or logged-in sites. It only imports when an import URL and Bearer token are explicitly passed.
+
+## Supported Vertical
+
+`real_estate` is the first vertical and the default:
+
+```powershell
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --dry-run
+```
+
+The vertical structure keeps query templates and scoring terms separate so future verticals such as `mold_remediation`, `public_adjuster`, and `auto_total_loss` can be added without rewriting the search and import pipeline.
 
 ## Markets
 
@@ -11,38 +21,74 @@ Supported market slugs come from `tools/market_packs.json`:
 - `broward-fl`
 - `northwest-ar`
 
-## Dry Run
+## Real Estate Query Templates
 
-Search one market and print normalized candidates:
+The `real_estate` vertical uses high-intent public-search templates:
 
-```bash
-python3 tools/candidate_finder.py --market broward-fl --dry-run
+- `"{city}" "looking for a house"`
+- `"{city}" "need a rental"`
+- `"{city}" "private landlord"`
+- `"{city}" "rent to own"`
+- `"{city}" "owner finance"`
+- `"{city}" "moving to" "house"`
+- `"{city}" "does anyone know" "rental"`
+- `"{city}" "ISO" "house"`
+
+## Filtering And Scoring
+
+Lead Scout pre-filters obvious junk before scoring:
+
+- agent directories and profile pages
+- Zillow, Realtor, Redfin, Homes, Yelp, YellowPages, and similar directory/listing pages
+- SEO guides
+- homebuyer programs, grants, mortgage pages, and down-payment-assistance pages
+- generic listing pages
+- wrong-geography pages
+- private or logged-in social sites
+
+Use `--ai-score` to score candidates with OpenAI when `OPENAI_API_KEY` is available. If `--ai-score` is not passed, or if the key is missing, the tool uses rule-based scoring.
+
+The scorer keeps only candidates where:
+
+- `is_lead` is `true`
+- `confidence` is at least `--min-confidence`
+- `location_match` is `true`
+- `is_directory_or_ad` is `false`
+
+## Dry Runs
+
+Dry-run output includes kept count, rejected count, rejection reasons, kept candidates, and rejected examples when requested.
+
+```powershell
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 2 --results-per-query 10 --dry-run --show-rejected
+python tools/candidate_finder.py --vertical real_estate --market northwest-ar --queries-per-market 2 --results-per-query 10 --dry-run --show-rejected
 ```
 
-Search both markets and write a JSON file:
+AI-assisted dry run:
 
-```bash
-python3 tools/candidate_finder.py --all-markets --dry-run --output samples/real_candidates.sample.json
+```powershell
+$env:OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 2 --results-per-query 10 --dry-run --ai-score --show-rejected
 ```
 
 ## Import
 
-Candidate import requires the same agent Bearer token used by Discovery Inbox candidate routes:
+Import is never automatic. To POST kept candidates to the existing authenticated Discovery Inbox endpoint, pass both `--import-url` and `--token`:
 
-```bash
-python3 tools/candidate_finder.py --market northwest-ar --token YOUR_AGENT_TOKEN --import-url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
+```powershell
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --import-url https://2v0q4zm2v6.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import --token YOUR_AGENT_TOKEN
 ```
 
 You can also set the token once:
 
-```bash
+```powershell
 $env:CANDIDATE_IMPORT_TOKEN = "YOUR_AGENT_TOKEN"
-python3 tools/candidate_finder.py --market broward-fl --import-url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
+python tools/candidate_finder.py --vertical real_estate --market northwest-ar --import-url https://2v0q4zm2v6.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
 ```
 
-## Output Shape
+## Candidate Shape
 
-Each result is normalized to fields accepted by `tools/candidate_import.py` and `/v1/candidates/import`, including:
+Kept candidates remain compatible with `tools/candidate_import.py` and `/v1/candidates/import`. Output includes:
 
 - `title`
 - `snippet`
@@ -54,14 +100,12 @@ Each result is normalized to fields accepted by `tools/candidate_import.py` and 
 - `county`
 - `city`
 - `state`
+- `vertical`
 - `role_guess`
 - `intent_guess`
 - `intent_score`
 - `search_query`
 - `contact_method`
+- `lead_scout_score`
 
 `source_url` is used for local dedupe before import. The backend import route also dedupes by `source_url`.
-
-## Notes
-
-Candidate Finder only uses public search result pages and skips common private/logged-in social domains. Search results should still be reviewed in Discovery Inbox before promotion to normal leads.
