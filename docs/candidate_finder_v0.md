@@ -57,19 +57,21 @@ The scorer keeps only candidates where:
 
 ## Dry Runs
 
-Dry-run output includes kept count, rejected count, rejection reasons, kept candidates, and rejected examples when requested.
+Dry-run output includes raw result count, candidate count after URL dedupe, prefilter rejection count, AI scored count, kept count, rejected count, provider error count, provider errors, rejection reasons, kept candidates, and rejected examples when requested.
 
 ```powershell
-python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 2 --results-per-query 10 --dry-run --show-rejected
-python tools/candidate_finder.py --vertical real_estate --market northwest-ar --queries-per-market 2 --results-per-query 10 --dry-run --show-rejected
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 4 --results-per-query 10 --dry-run --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market northwest-ar --queries-per-market 4 --results-per-query 10 --dry-run --show-rejected --debug
 ```
 
 AI-assisted dry run:
 
 ```powershell
 $env:OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
-python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 2 --results-per-query 10 --dry-run --ai-score --show-rejected
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 4 --results-per-query 10 --dry-run --ai-score --show-rejected --debug
 ```
+
+`--debug` adds the search queries executed, raw result count per query, first raw titles and URLs before filtering, whether AI scoring was requested/enabled, and whether an OpenAI API key was detected. It does not print the API key.
 
 ## Import
 
