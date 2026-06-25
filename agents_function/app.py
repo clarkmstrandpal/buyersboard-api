@@ -44,9 +44,48 @@ def get_agent_by_email(email: str):
     return items[0] if items else None
 
 def scrypt_verify(password: str, salt_b64url: str, n:int, r:int, p:int, expected_b64url: str) -> bool:
-    dk = hashlib.scrypt(password.encode(), salt=base64.urlsafe_b64decode(salt_b64url+"=="), n=n, r=r, p=p, dklen=32)
-    calc = base64.urlsafe_b64encode(dk).decode().rstrip("=")
-    return hmac.compare_digest(calc, expected_b64url)
+    try:
+        dk = hashlib.scrypt(password.encode(), salt=base64.urlsafe_b64decode(salt_b64url+"=="), n=n, r=r, p=p, dklen=32)
+        calc = base64.urlsafe_b64encode(dk).decode().rstrip("=")
+        return hmac.compare_digest(calc, expected_b64url)
+    except Exception:
+        return False
+
+def scrypt_verify_seed(password: str, salt_b64: str, expected_b64: str) -> bool:
+    try:
+        dk = hashlib.scrypt(password.encode(), salt=base64.b64decode(salt_b64), n=16384, r=8, p=1, dklen=64)
+        expected = base64.b64decode(expected_b64)
+        return hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+def _attr_s(item: dict, name: str):
+    value = item.get(name) or {}
+    return value.get("S")
+
+def _attr_n(item: dict, name: str):
+    value = item.get(name) or {}
+    raw = value.get("N")
+    return int(raw) if raw is not None else None
+
+def verify_agent_password(item: dict, password: str) -> bool:
+    try:
+        salt = _attr_s(item, "password_salt")
+        expected = _attr_s(item, "password_scrypt")
+        n = _attr_n(item, "scrypt_n")
+        r = _attr_n(item, "scrypt_r")
+        p = _attr_n(item, "scrypt_p")
+        if salt and expected and n and r and p:
+            return scrypt_verify(password, salt, n, r, p, expected)
+
+        seed_salt = _attr_s(item, "scrypt_salt")
+        seed_expected = _attr_s(item, "scrypt_hash")
+        if seed_salt and seed_expected:
+            return scrypt_verify_seed(password, seed_salt, seed_expected)
+    except Exception:
+        return False
+
+    return False
 
 def json_resp(code: int, body: dict):
     return {"statusCode": code, "headers":{"content-type":"application/json","access-control-allow-origin":"*"}, "body": json.dumps(body)}
@@ -63,10 +102,7 @@ def route_login(event):
         time.sleep(0.2)
         return json_resp(401, {"error":"invalid credentials"})
 
-    salt = item["password_salt"]["S"]
-    sN = int(item["scrypt_n"]["N"]); sR = int(item["scrypt_r"]["N"]); sP = int(item["scrypt_p"]["N"])
-    expected = item["password_scrypt"]["S"]
-    if not scrypt_verify(password, salt, sN, sR, sP, expected):
+    if not verify_agent_password(item, password):
         time.sleep(0.2)
         return json_resp(401, {"error":"invalid credentials"})
 
