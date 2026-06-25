@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+﻿AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: BuyersBoard MVP — HTTP API (v2) with CORS + DynamoDB Leads table
 
@@ -92,22 +92,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
-        - AttributeName: zip_prefix
-          AttributeType: S
-        - AttributeName: created_ts
-          AttributeType: N
       KeySchema:
         - AttributeName: id
           KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: zip_prefix_created_index
-          KeySchema:
-            - AttributeName: zip_prefix
-              KeyType: HASH
-            - AttributeName: created_ts
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
 
   # ---------- Shared Layer (your common helpers) ----------
   CommonLayer:
@@ -166,30 +153,6 @@ Resources:
           Properties:
             ApiId: !Ref HttpApi
             Path: /v1/ingest
-            Method: POST
-            PayloadFormatVersion: '2.0'
-
-  # ---------- Lambda: /v1/lead-finder/import ----------
-  LeadFinderImportFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: lambdas/lead_finder_import/
-      Handler: app.lambda_handler
-      Layers: [ !Ref CommonLayer ]
-      Environment:
-        Variables:
-          TABLE_LEADS: !Ref LeadsTable
-          CORS_ORIGIN: "*"
-          MAX_IMPORT_ROWS: "100"
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref LeadsTable
-      Events:
-        LeadFinderImportRoute:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/lead-finder/import
             Method: POST
             PayloadFormatVersion: '2.0'
 
