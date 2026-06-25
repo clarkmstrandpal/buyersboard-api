@@ -22,19 +22,8 @@ MARKET_PACKS_PATH = Path(__file__).with_name("market_packs.json")
 DEFAULT_MIN_CONFIDENCE = 0.65
 DEFAULT_OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-SEARCH_PROVIDER_DOMAINS = (
-    "duckduckgo.com",
-    "bing.com",
-    "google.com",
-)
-PRIVATE_OR_NOISY_DOMAINS = (
-    "facebook.com",
-    "instagram.com",
-    "linkedin.com",
-    "nextdoor.com",
-    "x.com",
-    "twitter.com",
-)
+SEARCH_PROVIDER_DOMAINS = ("duckduckgo.com", "bing.com", "google.com")
+PRIVATE_OR_NOISY_DOMAINS = ("facebook.com", "instagram.com", "linkedin.com", "nextdoor.com", "x.com", "twitter.com")
 DIRECTORY_DOMAINS = (
     "zillow.com",
     "realtor.com",
@@ -47,14 +36,7 @@ DIRECTORY_DOMAINS = (
     "rent.com",
     "hotpads.com",
 )
-DIRECTORY_TERMS = (
-    "real estate agent",
-    "realtor profile",
-    "agent directory",
-    "top agents",
-    "find an agent",
-    "business directory",
-)
+DIRECTORY_TERMS = ("real estate agent", "realtor profile", "agent directory", "top agents", "find an agent", "business directory")
 SEO_OR_PROGRAM_TERMS = (
     "homebuyer program",
     "first time home buyer program",
@@ -69,7 +51,6 @@ SEO_OR_PROGRAM_TERMS = (
     "homes for sale",
     "apartments for rent",
 )
-
 
 VERTICALS: dict[str, dict[str, Any]] = {
     "real_estate": {
@@ -247,11 +228,11 @@ def infer_intent_and_role(text: str, vertical: str) -> tuple[str, str]:
     lowered = text.lower()
     for intent, terms in VERTICALS[vertical]["lead_terms"].items():
         if any(term in lowered for term in terms):
-            if intent in ("rent",):
+            if intent == "rent":
                 return intent, "renter"
-            if intent in ("private_landlord",):
+            if intent == "private_landlord":
                 return intent, "landlord"
-            if intent in ("sell",):
+            if intent == "sell":
                 return intent, "seller"
             return intent, "buyer"
     return "unknown", "unknown"
@@ -286,12 +267,7 @@ def rule_score(candidate: dict[str, Any], min_confidence: float) -> dict[str, An
     text = f"{candidate.get('title', '')} {candidate.get('snippet', '')}".lower()
     vertical = str(candidate.get("vertical", "real_estate"))
     intent, role = infer_intent_and_role(text, vertical)
-    matched_terms = [
-        term
-        for terms in VERTICALS[vertical]["lead_terms"].values()
-        for term in terms
-        if term in text
-    ]
+    matched_terms = [term for terms in VERTICALS[vertical]["lead_terms"].values() for term in terms if term in text]
     directory_or_ad = contains_any(text, DIRECTORY_TERMS + SEO_OR_PROGRAM_TERMS)
     confidence = 0.35
     if matched_terms:
@@ -371,7 +347,7 @@ def ai_score(candidate: dict[str, Any], api_key: str, model: str) -> dict[str, A
 
 
 def normalize_score(score: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
-    normalized = {
+    return {
         "is_lead": bool(score.get("is_lead")),
         "confidence": float(score.get("confidence") or 0.0),
         "vertical": str(score.get("vertical") or candidate.get("vertical") or "real_estate"),
@@ -384,7 +360,6 @@ def normalize_score(score: dict[str, Any], candidate: dict[str, Any]) -> dict[st
         "cleaned_message": str(score.get("cleaned_message") or candidate.get("message") or candidate.get("snippet") or ""),
         "scorer": str(score.get("scorer") or "unknown"),
     }
-    return normalized
 
 
 def keep_score(score: dict[str, Any], min_confidence: float) -> tuple[bool, str]:
@@ -399,11 +374,28 @@ def keep_score(score: dict[str, Any], min_confidence: float) -> tuple[bool, str]
     return True, ""
 
 
-def discover(markets: list[str], vertical: str, per_market: int, per_query: int) -> tuple[list[dict[str, Any]], Counter[str]]:
+def raw_example(result: dict[str, str]) -> dict[str, str]:
+    return {"title": result.get("title", ""), "source_url": result.get("source_url", "")}
+
+
+def discover(
+    markets: list[str],
+    vertical: str,
+    per_market: int,
+    per_query: int,
+    debug: bool,
+) -> tuple[list[dict[str, Any]], Counter[str], dict[str, Any]]:
     packs = load_market_packs()
     candidates: list[dict[str, Any]] = []
     rejected: Counter[str] = Counter()
     seen_urls: set[str] = set()
+    diagnostics: dict[str, Any] = {
+        "raw_result_count": 0,
+        "candidate_after_dedupe_count": 0,
+        "provider_error_count": 0,
+        "provider_errors": [],
+    }
+    debug_queries: list[dict[str, Any]] = []
 
     for market_slug in markets:
         pack = packs.get(market_slug)
@@ -416,15 +408,38 @@ def discover(markets: list[str], vertical: str, per_market: int, per_query: int)
             try:
                 results = public_search(query, per_query)
             except urllib.error.URLError as exc:
-                print(f"search failed for {market_slug}: {query}: {exc}", file=sys.stderr)
-                rejected["search_failed"] += 1
+                error = {"market": market_slug, "query": query, "error": str(exc)}
+                diagnostics["provider_error_count"] += 1
+                diagnostics["provider_errors"].append(error)
+                rejected["provider_error"] += 1
+                if debug:
+                    debug_queries.append(
+                        {
+                            "market": market_slug,
+                            "query": query,
+                            "raw_result_count": 0,
+                            "raw_examples": [],
+                            "provider_error": error["error"],
+                        }
+                    )
                 continue
+            diagnostics["raw_result_count"] += len(results)
+            if debug:
+                debug_queries.append(
+                    {
+                        "market": market_slug,
+                        "query": query,
+                        "raw_result_count": len(results),
+                        "raw_examples": [raw_example(result) for result in results[:5]],
+                    }
+                )
             for result in results:
                 url = result.get("source_url", "")
                 if url in seen_urls:
                     rejected["duplicate_source_url"] += 1
                     continue
                 seen_urls.add(url)
+                diagnostics["candidate_after_dedupe_count"] += 1
                 reason = prefilter(result, pack, city, county)
                 if reason:
                     rejected[reason] += 1
@@ -432,7 +447,10 @@ def discover(markets: list[str], vertical: str, per_market: int, per_query: int)
                 candidates.append(normalize_result(result, pack, vertical, query, city, county))
             time.sleep(0.5)
 
-    return candidates, rejected
+    diagnostics["prefilter_rejected_count"] = sum(rejected.values()) - rejected.get("provider_error", 0) - rejected.get("duplicate_source_url", 0)
+    if debug:
+        diagnostics["debug"] = {"queries": debug_queries}
+    return candidates, rejected, diagnostics
 
 
 def score_candidates(
@@ -440,18 +458,28 @@ def score_candidates(
     min_confidence: float,
     ai_enabled: bool,
     model: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Counter[str]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Counter[str], dict[str, Any]]:
     kept: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     reasons: Counter[str] = Counter()
     api_key = os.environ.get("OPENAI_API_KEY")
     use_ai = ai_enabled and bool(api_key)
+    diagnostics = {
+        "ai_requested": ai_enabled,
+        "openai_api_key_detected": bool(api_key),
+        "ai_enabled": use_ai,
+        "ai_scored_count": 0,
+    }
     if ai_enabled and not api_key:
         print("AI scoring requested but OPENAI_API_KEY is not set; using rule-based scoring.", file=sys.stderr)
 
     for candidate in candidates:
         try:
-            raw_score = ai_score(candidate, api_key, model) if use_ai and api_key else rule_score(candidate, min_confidence)
+            if use_ai and api_key:
+                raw_score = ai_score(candidate, api_key, model)
+                diagnostics["ai_scored_count"] += 1
+            else:
+                raw_score = rule_score(candidate, min_confidence)
         except (urllib.error.URLError, json.JSONDecodeError, KeyError, ValueError) as exc:
             print(f"AI score failed for {candidate.get('source_url')}: {exc}; using rule-based scoring.", file=sys.stderr)
             raw_score = rule_score(candidate, min_confidence)
@@ -471,7 +499,7 @@ def score_candidates(
             reason = reason or "not_a_lead"
             reasons[reason] += 1
             rejected.append(scored_candidate | {"reject_reason": reason})
-    return kept, rejected, reasons
+    return kept, rejected, reasons, diagnostics
 
 
 def import_candidates(url: str, token: str, candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -491,15 +519,31 @@ def build_report(
     rejected: list[dict[str, Any]],
     prefilter_reasons: Counter[str],
     score_reasons: Counter[str],
+    discovery_diagnostics: dict[str, Any],
+    scoring_diagnostics: dict[str, Any],
     show_rejected: bool,
+    debug: bool,
 ) -> dict[str, Any]:
     rejection_reasons = prefilter_reasons + score_reasons
     report: dict[str, Any] = {
+        "raw_result_count": discovery_diagnostics["raw_result_count"],
+        "candidate_after_dedupe_count": discovery_diagnostics["candidate_after_dedupe_count"],
+        "prefilter_rejected_count": discovery_diagnostics["prefilter_rejected_count"],
+        "ai_scored_count": scoring_diagnostics["ai_scored_count"],
         "kept_count": len(kept),
         "rejected_count": len(rejected) + sum(prefilter_reasons.values()),
+        "provider_error_count": discovery_diagnostics["provider_error_count"],
         "rejection_reasons": dict(rejection_reasons.most_common()),
+        "provider_errors": discovery_diagnostics["provider_errors"],
         "kept_candidates": kept,
     }
+    if debug:
+        report["debug"] = {
+            "ai_scoring_requested": scoring_diagnostics["ai_requested"],
+            "ai_scoring_enabled": scoring_diagnostics["ai_enabled"],
+            "openai_api_key_detected": scoring_diagnostics["openai_api_key_detected"],
+            "search_queries": discovery_diagnostics.get("debug", {}).get("queries", []),
+        }
     if show_rejected:
         report["rejected_examples"] = rejected[:10]
     return report
@@ -523,6 +567,7 @@ def main() -> int:
     parser.add_argument("--ai-score", action="store_true", help="Use OPENAI_API_KEY for AI lead scoring when available.")
     parser.add_argument("--min-confidence", type=float, default=DEFAULT_MIN_CONFIDENCE, help="Minimum score required to keep a candidate.")
     parser.add_argument("--show-rejected", action="store_true", help="Include rejected scored examples in dry-run output.")
+    parser.add_argument("--debug", action="store_true", help="Include query-level search and scoring diagnostics in dry-run output.")
     parser.add_argument("--output", help="Write dry-run report JSON to this file instead of stdout.")
     parser.add_argument("--dry-run", action="store_true", help="Find, score, and print candidates without importing.")
     parser.add_argument("--import-url", help="Target /v1/candidates/import URL. Required with --token to import.")
@@ -535,13 +580,28 @@ def main() -> int:
         parser.error("use --market or --all-markets")
 
     try:
-        discovered, prefilter_reasons = discover(markets, args.vertical, args.queries_per_market, args.results_per_query)
-        kept, rejected, score_reasons = score_candidates(discovered, args.min_confidence, args.ai_score, args.model)
+        discovered, prefilter_reasons, discovery_diagnostics = discover(
+            markets,
+            args.vertical,
+            args.queries_per_market,
+            args.results_per_query,
+            args.debug,
+        )
+        kept, rejected, score_reasons, scoring_diagnostics = score_candidates(discovered, args.min_confidence, args.ai_score, args.model)
     except (OSError, ValueError) as exc:
         print(f"Lead scout failed: {exc}", file=sys.stderr)
         return 1
 
-    report = build_report(kept, rejected, prefilter_reasons, score_reasons, args.show_rejected)
+    report = build_report(
+        kept,
+        rejected,
+        prefilter_reasons,
+        score_reasons,
+        discovery_diagnostics,
+        scoring_diagnostics,
+        args.show_rejected,
+        args.debug,
+    )
     write_output(args.output, report)
 
     if args.dry_run:
