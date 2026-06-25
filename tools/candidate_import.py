@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -32,12 +33,15 @@ def load_items(path: Path) -> list[dict[str, Any]]:
     return items
 
 
-def post_items(url: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+def post_items(url: str, items: list[dict[str, Any]], token: str | None) -> dict[str, Any]:
     body = json.dumps({"items": items}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -52,6 +56,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Import candidate leads into the Discovery Inbox.")
     parser.add_argument("file", help="JSON file containing a candidate array or {\"items\": [...]}.")
     parser.add_argument("--url", default=DEFAULT_URL, help="Target /v1/candidates/import URL.")
+    parser.add_argument("--token", default=os.environ.get("CANDIDATE_IMPORT_TOKEN"), help="Bearer token from /v1/agents/login.")
     parser.add_argument("--dry-run", action="store_true", help="Validate and summarize without POSTing.")
     args = parser.parse_args()
 
@@ -64,9 +69,12 @@ def main() -> int:
     if args.dry_run:
         print(f"dry-run ok: {len(items)} candidate(s) loaded")
         return 0
+    if not args.token:
+        print("Import failed: --token or CANDIDATE_IMPORT_TOKEN is required", file=sys.stderr)
+        return 1
 
     try:
-        result = post_items(args.url, items)
+        result = post_items(args.url, items, args.token)
     except urllib.error.HTTPError as exc:
         print(f"Import failed with HTTP {exc.code}: {exc.read().decode('utf-8')}", file=sys.stderr)
         return 1
