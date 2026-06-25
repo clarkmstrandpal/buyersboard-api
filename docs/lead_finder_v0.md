@@ -45,3 +45,28 @@ curl "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/leads/list?
 ```
 
 The `/v1/leads/list` response includes fields such as `source`, `source_url`, `intent`, `message`, `description`, `notes`, `title`, `city`, `state`, `role`, `first_name`, `last_name`, `phone`, and `created_at` when present on the stored lead.
+
+## Import leads in bulk
+
+Lead Finder Import v0 adds `POST /v1/lead-finder/import` for small batches of scraped/public lead rows. The endpoint accepts either JSON or CSV and writes valid rows into the existing leads table with `source` defaulting to `lead_finder_import_v0`.
+
+JSON shape:
+
+```json
+{
+  "leads": [
+    {
+      "title": "Looking for a buyer agent in Boca",
+      "message": "Need help finding homes under 650k.",
+      "source_url": "https://example.com/post/123",
+      "intent": "buyer",
+      "city": "Boca Raton",
+      "state": "FL"
+    }
+  ]
+}
+```
+
+CSV imports use the first row as headers. Supported headers are `first_name`, `last_name`, `name`, `email`, `phone`, `zip`, `price`, `beds`, `baths`, `notes`, `status`, `source`, `source_url`, `intent`, `message`, `description`, `title`, `city`, `state`, and `role`.
+
+The v0 endpoint is intentionally capped at 100 rows per request. Each imported lead receives an `import_id` and `import_row` so a batch can be audited later.
