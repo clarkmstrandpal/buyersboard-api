@@ -15,7 +15,33 @@ TABLE = DDB.Table(TABLE_NAME)
 GSI_NAME = "zip_prefix_created_index"
 DEFAULT_LIMIT = int(os.environ.get("LIST_LIMIT", "24"))
 
-LIGHT_KEYS = ("lead_id","id","zip","zip_prefix","price","status","created_ts","beds","baths","email","name")
+LIGHT_KEYS = (
+    "lead_id",
+    "id",
+    "zip",
+    "zip_prefix",
+    "price",
+    "status",
+    "created_ts",
+    "beds",
+    "baths",
+    "email",
+    "name",
+    "source",
+    "source_url",
+    "intent",
+    "message",
+    "description",
+    "notes",
+    "title",
+    "city",
+    "state",
+    "role",
+    "first_name",
+    "last_name",
+    "phone",
+    "created_at",
+)
 
 def _json(body: Any) -> str:
     return json.dumps(body, default=str)
