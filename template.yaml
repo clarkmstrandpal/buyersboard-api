@@ -14,11 +14,11 @@ Parameters:
     Type: String
     Default: dev
 
-Resources:
-  LeadsClaimFunction:
+Resources:
+  LeadsActionFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: leads_claim/
+      CodeUri: handlers/leads_actions/
       Handler: app.handler
       Runtime: python3.12
       Timeout: 10
@@ -26,40 +26,42 @@ Resources:
       Environment:
         Variables:
           TABLE_LEADS: buyersboard_leads
+          CLAIM_WINDOW_SEC: 600
       Policies:
         - DynamoDBCrudPolicy:
             TableName: buyersboard_leads
       Events:
-        ApiClaim:
+        Claim:
           Type: HttpApi
           Properties:
+            ApiId: !Ref HttpApi
             Path: /v1/leads/claim
             Method: POST
-  LeadsClaimFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: leads_claim/
-      Handler: app.handler
-      Runtime: python3.12
-      Timeout: 10
-      MemorySize: 256
-      Environment:
-        Variables:
-          TABLE_LEADS: buyersboard_leads
-      Policies:
-        - Version: "2012-10-17"
-          Statement:
-            - Effect: Allow
-              Action:
-                - dynamodb:UpdateItem
-                - dynamodb:GetItem
-              Resource: !GetAtt LeadsTable.Arn
-      Events:
-        ApiClaim:
+            PayloadFormatVersion: '2.0'
+        Archive:
           Type: HttpApi
           Properties:
-            Path: /v1/leads/claim
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/archive
             Method: POST
+            PayloadFormatVersion: '2.0'
+        Close:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/close
+            Method: POST
+            PayloadFormatVersion: '2.0'
+        Reopen:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/leads/reopen
+            Method: POST
+            PayloadFormatVersion: '2.0'
+
+
+
   # ---------- HTTP API (API Gateway v2) with simple CORS ----------
   HttpApi:
     Type: AWS::Serverless::HttpApi
@@ -291,47 +293,4 @@ Outputs:
   LeadsTableName:
     Description: DynamoDB table for leads
     Value: !Ref LeadsTable
-
-# --- Leads actions added 20251102_172057 ---
-  LeadsActionFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: handlers/leads_actions/
-      Handler: app.handler
-      Runtime: python3.12
-      Timeout: 10
-      MemorySize: 256
-      Environment:
-        Variables:
-          TABLE_LEADS: buyersboard_leads
-          CLAIM_WINDOW_SEC: 600
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: buyersboard_leads
-      Events:
-        Claim:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/claim
-            Method: POST
-        Archive:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/archive
-            Method: POST
-        Close:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/close
-            Method: POST
-        Reopen:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /v1/leads/reopen
-            Method: POST
-
 
