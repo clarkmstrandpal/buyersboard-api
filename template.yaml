@@ -202,11 +202,16 @@ Resources:
           TABLE_CANDIDATES: !Ref CandidateLeadsTable
           TABLE_LEADS: !Ref LeadsTable
           CORS_ORIGIN: "*"
+          JWT_SECRET_PARAM: /buyersboard/dev/jwt_secret
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref CandidateLeadsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref LeadsTable
+        - Statement:
+            Effect: Allow
+            Action: [ "ssm:GetParameter" ]
+            Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/buyersboard/dev/jwt_secret
       Events:
         ImportCandidates:
           Type: HttpApi
