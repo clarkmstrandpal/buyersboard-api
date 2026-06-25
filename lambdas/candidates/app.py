@@ -1,5 +1,7 @@
 import base64
 import datetime
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -13,6 +15,7 @@ from boto3.dynamodb.conditions import Attr, Key
 from common.resp import err, ok  # type: ignore
 
 
+JWT_SECRET_PARAM = os.environ.get("JWT_SECRET_PARAM", "/buyersboard/dev/jwt_secret")
 VALID_STATUSES = {"new", "good", "maybe", "rejected", "duplicate", "sent", "archived"}
 ACTION_STATUS = {
     "good": "good",
@@ -37,6 +40,7 @@ LIST_FILTERS = (
 
 
 ddb = boto3.resource("dynamodb")
+ssm = boto3.client("ssm")
 
 
 def _origin() -> str:
@@ -93,6 +97,37 @@ def _parse_body(event: Dict[str, Any]) -> Any:
             return {}
         return json.loads(body)
     return body
+
+
+def _b64url_decode(value: str) -> bytes:
+    padded = value + ("=" * ((4 - len(value) % 4) % 4))
+    return base64.urlsafe_b64decode(padded.encode("utf-8"))
+
+
+def _jwt_decode(token: str, secret: str) -> Optional[Dict[str, Any]]:
+    try:
+        header_b64, payload_b64, sig_b64 = token.split(".")
+        signing_input = f"{header_b64}.{payload_b64}"
+        signature = _b64url_decode(sig_b64)
+        expected = hmac.new(secret.encode("utf-8"), signing_input.encode("utf-8"), hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+        if int(time.time()) >= int(payload.get("exp", 0)):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def _require_agent(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    headers = event.get("headers") or {}
+    auth = headers.get("authorization") or headers.get("Authorization")
+    if not auth or not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    secret = ssm.get_parameter(Name=JWT_SECRET_PARAM, WithDecryption=True)["Parameter"]["Value"]
+    return _jwt_decode(token, secret)
 
 
 def _cursor_to_key(cursor: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -387,6 +422,8 @@ def handler(event, context):
 
     path = event.get("rawPath") or event.get("path") or ""
     try:
+        if not _require_agent(event):
+            return err("missing or invalid bearer token", 401, origin)
         if method == "POST" and path.endswith("/v1/candidates/import"):
             return _import(event)
         if method == "GET" and path.endswith("/v1/candidates/list"):
