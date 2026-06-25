@@ -1,0 +1,56 @@
+{
+  "broward-fl": {
+    "market": "Broward County",
+    "market_slug": "broward-fl",
+    "state": "FL",
+    "counties": ["Broward"],
+    "cities": [
+      "Deerfield Beach",
+      "Pompano Beach",
+      "Coral Springs",
+      "Fort Lauderdale",
+      "Coconut Creek",
+      "Margate",
+      "Parkland",
+      "Tamarac",
+      "Plantation",
+      "Hollywood",
+      "Davie",
+      "Sunrise",
+      "Oakland Park",
+      "Wilton Manors"
+    ],
+    "zips": ["33442"],
+    "query_templates": [
+      "{city} home buyer needs agent",
+      "{city} relocating looking for home",
+      "{city} inherited property sell",
+      "{county} County investor looking for duplex"
+    ]
+  },
+  "northwest-ar": {
+    "market": "Northwest Arkansas",
+    "market_slug": "northwest-ar",
+    "state": "AR",
+    "counties": ["Benton", "Washington"],
+    "cities": [
+      "Fayetteville",
+      "Springdale",
+      "Rogers",
+      "Bentonville",
+      "Bella Vista",
+      "Centerton",
+      "Lowell",
+      "Farmington",
+      "Siloam Springs",
+      "Johnson"
+    ],
+    "zips": [],
+    "query_templates": [
+      "{city} first time home buyer",
+      "{city} relocating looking for house",
+      "{city} rental owner selling",
+      "{market} investor looking for property"
+    ]
+  }
+}
