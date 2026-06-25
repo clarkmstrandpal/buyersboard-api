@@ -1,0 +1,32 @@
+[
+  {
+    "source": "reddit",
+    "source_url": "https://example.com/r/homebuying/sample-import-1",
+    "intent": "buy",
+    "title": "Looking for a starter home near Coral Springs",
+    "message": "First-time buyer hoping to find a 3 bed home near good schools.",
+    "city": "Coral Springs",
+    "state": "FL",
+    "role": "buyer"
+  },
+  {
+    "source": "public_web",
+    "intent": "invest",
+    "description": "Investor comparing duplexes or small multifamily properties with renovation potential.",
+    "city": "Deerfield Beach",
+    "state": "FL",
+    "role": "investor",
+    "zip": "33441",
+    "email": "investor.sample@example.com"
+  },
+  {
+    "source": "forum",
+    "source_url": "https://example.com/forum/sample-import-3",
+    "title": "Considering selling inherited condo",
+    "message": "Trying to understand value before listing an inherited condo.",
+    "city": "Fort Lauderdale",
+    "state": "FL",
+    "role": "seller",
+    "phone": "555-0103"
+  }
+]

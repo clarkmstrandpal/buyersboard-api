@@ -45,3 +45,43 @@ curl "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/leads/list?
 ```
 
 The `/v1/leads/list` response includes fields such as `source`, `source_url`, `intent`, `message`, `description`, `notes`, `title`, `city`, `state`, `role`, `first_name`, `last_name`, `phone`, and `created_at` when present on the stored lead.
+
+## Import leads from a local file
+
+Lead Finder Import v0 is local-only. It does not add a Lambda function or a new API route. Use `tools/lead_finder_import.py` to read a JSON array from disk, validate each record, and POST valid rows to the existing `POST /v1/ingest` endpoint.
+
+JSON file shape:
+
+```json
+[
+  {
+    "source": "reddit",
+    "title": "Looking for a buyer agent in Boca",
+    "message": "Need help finding homes under 650k.",
+    "source_url": "https://example.com/post/123",
+    "intent": "buyer",
+    "city": "Boca Raton",
+    "state": "FL"
+  }
+]
+```
+
+Validate the sample file without sending anything:
+
+```bash
+python3 tools/lead_finder_import.py samples/lead_finder_import.sample.json --dry-run
+```
+
+POST valid records to the deployed dev ingest endpoint:
+
+```bash
+python3 tools/lead_finder_import.py samples/lead_finder_import.sample.json
+```
+
+Use a different ingest endpoint:
+
+```bash
+python3 tools/lead_finder_import.py samples/lead_finder_import.sample.json --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/ingest
+```
+
+Each record must include `source` and at least one of `title`, `message`, or `description`. The importer warns when `source_url` is missing, defaults missing `zip` to `00000`, supports `--dry-run`, and prints per-record success or failure.
