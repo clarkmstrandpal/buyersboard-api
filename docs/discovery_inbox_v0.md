@@ -10,16 +10,16 @@ Import candidate leads into the candidate table with:
 
 ```bash
 python3 tools/candidate_import.py samples/broward_candidates.sample.json --dry-run
-python3 tools/candidate_import.py samples/broward_candidates.sample.json --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
+python3 tools/candidate_import.py samples/broward_candidates.sample.json --token YOUR_AGENT_TOKEN --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
 ```
 
 Use a different sample:
 
 ```bash
-python3 tools/candidate_import.py samples/northwest_ar_candidates.sample.json --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
+python3 tools/candidate_import.py samples/northwest_ar_candidates.sample.json --token YOUR_AGENT_TOKEN --url https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import
 ```
 
-The local tool validates JSON and supports dry runs. Actual POST requests must include `Authorization: Bearer YOUR_AGENT_TOKEN`; pass that header from an API client when calling the import endpoint directly.
+The local tool validates JSON and supports dry runs. Actual POST requests use `--token` or the `CANDIDATE_IMPORT_TOKEN` environment variable to send `Authorization: Bearer ...`.
 
 The API route is `POST /v1/candidates/import`. It accepts either a JSON array or `{ "items": [...] }`. Each imported item receives a `candidate_id`, `created_at`, `created_ts`, and default `status` of `new` when missing. If `source_url` already exists, the importer skips the duplicate and reports it in the summary.
 
