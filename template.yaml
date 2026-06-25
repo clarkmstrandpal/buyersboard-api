@@ -96,6 +96,40 @@ Resources:
         - AttributeName: id
           KeyType: HASH
 
+  # ---------- DynamoDB: Candidate Leads ----------
+  CandidateLeadsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: buyersboard_candidate_leads
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: candidate_id
+          AttributeType: S
+        - AttributeName: source_url
+          AttributeType: S
+        - AttributeName: market_slug
+          AttributeType: S
+        - AttributeName: created_ts
+          AttributeType: N
+      KeySchema:
+        - AttributeName: candidate_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: source_url_index
+          KeySchema:
+            - AttributeName: source_url
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: market_slug_created_index
+          KeySchema:
+            - AttributeName: market_slug
+              KeyType: HASH
+            - AttributeName: created_ts
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
   # ---------- Shared Layer (your common helpers) ----------
   CommonLayer:
     Type: AWS::Serverless::LayerVersion
@@ -153,6 +187,51 @@ Resources:
           Properties:
             ApiId: !Ref HttpApi
             Path: /v1/ingest
+            Method: POST
+            PayloadFormatVersion: '2.0'
+
+  # ---------- Lambda: /v1/candidates/* ----------
+  CandidatesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/candidates/
+      Handler: app.handler
+      Layers: [ !Ref CommonLayer ]
+      Environment:
+        Variables:
+          TABLE_CANDIDATES: !Ref CandidateLeadsTable
+          TABLE_LEADS: !Ref LeadsTable
+          CORS_ORIGIN: "*"
+          JWT_SECRET_PARAM: /buyersboard/dev/jwt_secret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CandidateLeadsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LeadsTable
+        - Statement:
+            Effect: Allow
+            Action: [ "ssm:GetParameter" ]
+            Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/buyersboard/dev/jwt_secret
+      Events:
+        ImportCandidates:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/candidates/import
+            Method: POST
+            PayloadFormatVersion: '2.0'
+        ListCandidates:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/candidates/list
+            Method: GET
+            PayloadFormatVersion: '2.0'
+        ActionCandidates:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/candidates/action
             Method: POST
             PayloadFormatVersion: '2.0'
 
@@ -293,4 +372,6 @@ Outputs:
   LeadsTableName:
     Description: DynamoDB table for leads
     Value: !Ref LeadsTable
-
+  CandidateLeadsTableName:
+    Description: DynamoDB table for Discovery Inbox candidate leads
+    Value: !Ref CandidateLeadsTable

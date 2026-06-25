@@ -1,0 +1,50 @@
+[
+  {
+    "title": "First-time buyer needs help in Bentonville",
+    "snippet": "Buyer is comparing starter homes near work and bike trails.",
+    "message": "Looking for a starter home around Bentonville or Rogers under 350k.",
+    "source": "public_forum",
+    "source_url": "https://example.com/northwest-ar/public-forum/sample-1",
+    "market": "Northwest Arkansas",
+    "market_slug": "northwest-ar",
+    "county": "Benton",
+    "city": "Bentonville",
+    "state": "AR",
+    "role_guess": "buyer",
+    "intent_guess": "buy",
+    "intent_score": 0.81,
+    "search_query": "Bentonville first time home buyer"
+  },
+  {
+    "title": "Family relocating to Fayetteville this fall",
+    "snippet": "Needs neighborhood advice and wants an agent familiar with schools.",
+    "message": "Moving to Fayetteville for work and trying to find a 4 bedroom home before September.",
+    "source": "reddit",
+    "source_url": "https://example.com/northwest-ar/reddit/sample-2",
+    "market": "Northwest Arkansas",
+    "market_slug": "northwest-ar",
+    "county": "Washington",
+    "city": "Fayetteville",
+    "state": "AR",
+    "role_guess": "buyer",
+    "intent_guess": "relocate",
+    "intent_score": 0.76,
+    "search_query": "Fayetteville AR relocation home buyer"
+  },
+  {
+    "title": "Owner asking about selling a rental in Springdale",
+    "snippet": "Landlord is evaluating whether to sell a single-family rental.",
+    "message": "Rental in Springdale may be sold this year if pricing looks strong.",
+    "source": "public_web",
+    "source_url": "https://example.com/northwest-ar/public-web/sample-3",
+    "market": "Northwest Arkansas",
+    "market_slug": "northwest-ar",
+    "county": "Washington",
+    "city": "Springdale",
+    "state": "AR",
+    "role_guess": "seller",
+    "intent_guess": "sell",
+    "intent_score": 0.7,
+    "search_query": "Springdale rental owner selling"
+  }
+]
