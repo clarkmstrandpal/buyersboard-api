@@ -23,27 +23,27 @@ Supported market slugs come from `tools/market_packs.json`:
 - `broward-fl`
 - `northwest-ar`
 
-## Real Estate Query Modes
+## Real Estate Source Strategies
 
-The `real_estate` vertical supports query modes:
+The `real_estate` vertical supports source-quality strategies through `--source-strategy`:
 
-- `exact`: quoted high-intent phrases.
-- `broad`: fewer quotes, broader public-search queries.
-- `source`: source-targeted searches for likely public discussion sources.
-- `mixed`: default mode combining broad, source-targeted, and a few quoted high-intent queries.
+- `discussion`: prioritizes public human questions and intent posts.
+- `marketplace`: targets public marketplace/wanted-post sources such as Craigslist.
+- `broad`: broader demand-oriented queries without leaning into listing supply pages.
+- `mixed`: default mode combining discussion and marketplace intent searches.
 
-Examples in `mixed` mode include:
+Examples in `discussion` mode include:
 
-- `{city} looking for house`
-- `{city} need rental`
-- `{city} private landlord`
-- `{city} rent to own`
-- `{city} moving to house`
-- `site:reddit.com {city} looking for house`
-- `site:reddit.com {city} moving to`
-- `site:craigslist.org {city} wanted house`
-- `site:craigslist.org {city} private landlord`
-- `"{city}" "does anyone know" rental`
+- `"{city}" "does anyone know" "rental"`
+- `"{city}" "looking for a place"`
+- `"{city}" "looking for a house"`
+- `"{city}" "need a place"`
+- `"{city}" "moving to" "where should I live"`
+- `"{city}" "private landlord"`
+- `"{city}" "room for rent" "looking"`
+- `"{city}" "ISO" "rental"`
+- `"{city}" "in search of" "rental"`
+- `"{city}" "wanted" "house"`
 
 `--city-limit` controls how many cities are used per market before query generation. `--queries-per-market` applies after all selected-city queries are generated, so it caps the executed query list per market.
 
@@ -59,6 +59,8 @@ Lead Scout pre-filters obvious junk before scoring:
 - wrong-geography pages
 - private or logged-in social sites
 
+Supply/listing domains are denied before candidate creation, including Apartments.com, Zumper, Realtor, Zillow, Redfin, Homes, Compass, ForRent, Rent.com, Apartment Guide, Trulia, Movoto, PropertyShark, Point2Homes, Affordable Housing, Florida Rentals, and Vacation Key.
+
 Use `--ai-score` to score candidates with OpenAI when `OPENAI_API_KEY` is available. If `--ai-score` is not passed, or if the key is missing, the tool uses rule-based scoring.
 
 The scorer keeps only candidates where:
@@ -70,18 +72,18 @@ The scorer keeps only candidates where:
 
 ## Dry Runs
 
-Dry-run output includes raw result count, candidate count after URL dedupe, prefilter rejection count, AI scored count, kept count, rejected count, provider error count, provider errors, rejection reasons, kept candidates, and rejected examples when requested.
+Dry-run output includes raw result count, candidate count after URL dedupe, domain denied count, prefilter rejection count, discussion candidate count, marketplace candidate count, AI skipped prefilter count, AI scored count, kept count, rejected count, provider error count, provider errors, rejection reasons, kept candidates, and rejected examples when requested.
 
 ```powershell
-python tools/candidate_finder.py --vertical real_estate --market broward-fl --query-mode mixed --city-limit 3 --queries-per-market 12 --results-per-query 10 --dry-run --show-rejected --debug
-python tools/candidate_finder.py --vertical real_estate --market northwest-ar --query-mode mixed --city-limit 3 --queries-per-market 12 --results-per-query 10 --dry-run --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --source-strategy discussion --city-limit 3 --queries-per-market 12 --results-per-query 5 --dry-run --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market northwest-ar --source-strategy discussion --city-limit 3 --queries-per-market 12 --results-per-query 5 --dry-run --show-rejected --debug
 ```
 
-AI-assisted dry run:
+Cheap AI-assisted dry run:
 
 ```powershell
 $env:OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
-python tools/candidate_finder.py --vertical real_estate --market broward-fl --query-mode mixed --city-limit 3 --queries-per-market 12 --results-per-query 10 --dry-run --ai-score --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --source-strategy discussion --city-limit 3 --queries-per-market 12 --results-per-query 5 --dry-run --ai-score --ai-max-candidates 5 --show-rejected --debug
 ```
 
 `--debug` adds the cities used, generated query count, executed query count, search queries executed, raw result count per query, first raw titles and URLs before filtering, whether AI scoring was requested/enabled, and whether an OpenAI API key was detected. It does not print the API key.
