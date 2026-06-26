@@ -1,0 +1,4 @@
+# Harmless approved public URL examples for manual seed dry-runs.
+# Replace these with manually reviewed public URLs before real use.
+https://www.example.com/
+https://www.iana.org/domains/reserved
