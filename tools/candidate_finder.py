@@ -41,6 +41,7 @@ DIRECTORY_DOMAINS = (
     "realtor.com",
     "redfin.com",
     "homes.com",
+    "compass.com",
     "yelp.com",
     "yellowpages.com",
     "trulia.com",
@@ -48,8 +49,34 @@ DIRECTORY_DOMAINS = (
     "rent.com",
     "forrent.com",
     "hotpads.com",
+    "zumper.com",
+    "apartmentguide.com",
+    "movoto.com",
+    "propertyshark.com",
+    "point2homes.com",
+    "affordablehousing.com",
     "floridarentals.com",
+    "vacation-key.com",
     "rentuntilyouown.com",
+)
+SUPPLY_DENY_DOMAINS = (
+    "apartments.com",
+    "zumper.com",
+    "realtor.com",
+    "zillow.com",
+    "redfin.com",
+    "homes.com",
+    "compass.com",
+    "forrent.com",
+    "rent.com",
+    "apartmentguide.com",
+    "trulia.com",
+    "movoto.com",
+    "propertyshark.com",
+    "point2homes.com",
+    "affordablehousing.com",
+    "floridarentals.com",
+    "vacation-key.com",
 )
 DIRECTORY_TERMS = (
     "real estate agent",
@@ -134,6 +161,49 @@ VERTICALS: dict[str, dict[str, Any]] = {
                 "site:craigslist.org {city} wanted house",
                 "site:craigslist.org {city} private landlord",
                 '"{city}" "does anyone know" rental',
+            ),
+        },
+        "source_strategies": {
+            "broad": (
+                {"template": "{city} looking for house", "category": "discussion"},
+                {"template": "{city} need rental", "category": "discussion"},
+                {"template": "{city} private landlord", "category": "discussion"},
+                {"template": "{city} rent to own", "category": "marketplace"},
+                {"template": "{city} owner finance", "category": "marketplace"},
+                {"template": "{city} moving to house", "category": "discussion"},
+            ),
+            "discussion": (
+                {"template": '"{city}" "does anyone know" "rental"', "category": "discussion"},
+                {"template": '"{city}" "looking for a place"', "category": "discussion"},
+                {"template": '"{city}" "looking for a house"', "category": "discussion"},
+                {"template": '"{city}" "need a place"', "category": "discussion"},
+                {"template": '"{city}" "moving to" "where should I live"', "category": "discussion"},
+                {"template": '"{city}" "private landlord"', "category": "discussion"},
+                {"template": '"{city}" "room for rent" "looking"', "category": "discussion"},
+                {"template": '"{city}" "ISO" "rental"', "category": "discussion"},
+                {"template": '"{city}" "in search of" "rental"', "category": "discussion"},
+                {"template": '"{city}" "wanted" "house"', "category": "discussion"},
+            ),
+            "marketplace": (
+                {"template": "site:craigslist.org {city} wanted house", "category": "marketplace"},
+                {"template": "site:craigslist.org {city} private landlord", "category": "marketplace"},
+                {"template": "site:craigslist.org {city} rent to own", "category": "marketplace"},
+                {"template": "site:craigslist.org {city} room for rent looking", "category": "marketplace"},
+                {"template": "site:craigslist.org {city} housing wanted", "category": "marketplace"},
+            ),
+            "mixed": (
+                {"template": '"{city}" "does anyone know" "rental"', "category": "discussion"},
+                {"template": '"{city}" "looking for a place"', "category": "discussion"},
+                {"template": '"{city}" "looking for a house"', "category": "discussion"},
+                {"template": '"{city}" "need a place"', "category": "discussion"},
+                {"template": '"{city}" "private landlord"', "category": "discussion"},
+                {"template": '"{city}" "ISO" "rental"', "category": "discussion"},
+                {"template": '"{city}" "in search of" "rental"', "category": "discussion"},
+                {"template": "site:reddit.com {city} looking for house", "category": "discussion"},
+                {"template": "site:reddit.com {city} moving to", "category": "discussion"},
+                {"template": "site:craigslist.org {city} wanted house", "category": "marketplace"},
+                {"template": "site:craigslist.org {city} private landlord", "category": "marketplace"},
+                {"template": "site:craigslist.org {city} housing wanted", "category": "marketplace"},
             ),
         },
         "lead_terms": {
@@ -309,14 +379,25 @@ def load_market_packs(path: Path = MARKET_PACKS_PATH) -> dict[str, dict[str, Any
     return data
 
 
-def render_queries(pack: dict[str, Any], vertical: str, query_mode: str, city_limit: int, per_market: int) -> tuple[list[dict[str, str]], dict[str, Any]]:
+def render_queries(
+    pack: dict[str, Any],
+    vertical: str,
+    query_mode: str,
+    source_strategy: str,
+    city_limit: int,
+    per_market: int,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
     config = VERTICALS[vertical]
     generated: list[dict[str, str]] = []
     cities = (pack.get("cities") or [""])[:city_limit]
     counties = pack.get("counties") or [""]
+    templates = config["source_strategies"].get(source_strategy)
+    if templates is None:
+        templates = [{"template": template, "category": "discussion"} for template in config["query_templates"][query_mode]]
     for city in cities:
         county = counties[0] if counties else ""
-        for template in config["query_templates"][query_mode]:
+        for template_info in templates:
+            template = template_info["template"]
             query = template.format(
                 market=pack.get("market", ""),
                 market_slug=pack.get("market_slug", ""),
@@ -326,7 +407,14 @@ def render_queries(pack: dict[str, Any], vertical: str, query_mode: str, city_li
             )
             query = " ".join(query.split())
             if query:
-                generated.append({"query": query, "city": city, "county": county})
+                generated.append(
+                    {
+                        "query": query,
+                        "city": city,
+                        "county": county,
+                        "source_category": template_info["category"],
+                    }
+                )
     diagnostics = {
         "cities_used": cities,
         "generated_query_count": len(generated),
@@ -401,6 +489,10 @@ def public_search(query: str, limit: int) -> list[dict[str, str]]:
 def host_matches(url: str, domains: tuple[str, ...]) -> bool:
     host = urllib.parse.urlparse(url).netloc.lower()
     return any(host == domain or host.endswith(f".{domain}") for domain in domains)
+
+
+def domain_denied(url: str) -> bool:
+    return host_matches(url, SUPPLY_DENY_DOMAINS)
 
 
 def contains_any(text: str, terms: tuple[str, ...]) -> bool:
@@ -611,6 +703,7 @@ def discover(
     markets: list[str],
     vertical: str,
     query_mode: str,
+    source_strategy: str,
     city_limit: int,
     per_market: int,
     per_query: int,
@@ -628,6 +721,9 @@ def discover(
         "cities_used": {},
         "generated_query_count": 0,
         "executed_query_count": 0,
+        "domain_denied_count": 0,
+        "discussion_candidate_count": 0,
+        "marketplace_candidate_count": 0,
     }
     debug_queries: list[dict[str, Any]] = []
 
@@ -635,7 +731,7 @@ def discover(
         pack = packs.get(market_slug)
         if not pack:
             raise ValueError(f"unknown market: {market_slug}")
-        query_infos, query_diagnostics = render_queries(pack, vertical, query_mode, city_limit, per_market)
+        query_infos, query_diagnostics = render_queries(pack, vertical, query_mode, source_strategy, city_limit, per_market)
         diagnostics["cities_used"][market_slug] = query_diagnostics["cities_used"]
         diagnostics["generated_query_count"] += query_diagnostics["generated_query_count"]
         diagnostics["executed_query_count"] += query_diagnostics["executed_query_count"]
@@ -643,6 +739,7 @@ def discover(
             query = query_info["query"]
             city = query_info["city"]
             county = query_info["county"]
+            source_category = query_info["source_category"]
             try:
                 results = public_search(query, per_query)
             except urllib.error.URLError as exc:
@@ -659,6 +756,7 @@ def discover(
                         {
                             "market": market_slug,
                             "query": query,
+                            "source_category": source_category,
                             "raw_result_count": 0,
                             "raw_examples": [],
                             "provider_error": error["error"],
@@ -672,6 +770,7 @@ def discover(
                     {
                         "market": market_slug,
                         "query": query,
+                        "source_category": source_category,
                         "raw_result_count": len(results),
                         "raw_examples": [raw_example(result) for result in results[:5]],
                     }
@@ -683,14 +782,30 @@ def discover(
                     continue
                 seen_urls.add(url)
                 diagnostics["candidate_after_dedupe_count"] += 1
+                if domain_denied(url):
+                    diagnostics["domain_denied_count"] += 1
+                    rejected["domain_denied"] += 1
+                    continue
                 reason = prefilter(result, pack, city, county)
                 if reason:
                     rejected[reason] += 1
                     continue
-                candidates.append(normalize_result(result, pack, vertical, query, city, county))
+                if source_category == "marketplace":
+                    diagnostics["marketplace_candidate_count"] += 1
+                else:
+                    diagnostics["discussion_candidate_count"] += 1
+                candidate = normalize_result(result, pack, vertical, query, city, county)
+                candidate["source_strategy"] = source_strategy
+                candidate["source_category"] = source_category
+                candidates.append(candidate)
             time.sleep(SEARCH_DELAY_SECONDS)
 
-    diagnostics["prefilter_rejected_count"] = sum(rejected.values()) - rejected.get("provider_error", 0) - rejected.get("duplicate_source_url", 0)
+    diagnostics["prefilter_rejected_count"] = (
+        sum(rejected.values())
+        - rejected.get("provider_error", 0)
+        - rejected.get("duplicate_source_url", 0)
+        - rejected.get("domain_denied", 0)
+    )
     if debug:
         diagnostics["debug"] = {"queries": debug_queries}
     return candidates, rejected, diagnostics
@@ -701,6 +816,7 @@ def score_candidates(
     min_confidence: float,
     ai_enabled: bool,
     model: str,
+    ai_max_candidates: int | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Counter[str], dict[str, Any]]:
     kept: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
@@ -718,7 +834,7 @@ def score_candidates(
 
     for candidate in candidates:
         try:
-            if use_ai and api_key:
+            if use_ai and api_key and (ai_max_candidates is None or diagnostics["ai_scored_count"] < ai_max_candidates):
                 raw_score = ai_score(candidate, api_key, model)
                 diagnostics["ai_scored_count"] += 1
             else:
@@ -771,7 +887,11 @@ def build_report(
     report: dict[str, Any] = {
         "raw_result_count": discovery_diagnostics["raw_result_count"],
         "candidate_after_dedupe_count": discovery_diagnostics["candidate_after_dedupe_count"],
+        "domain_denied_count": discovery_diagnostics["domain_denied_count"],
         "prefilter_rejected_count": discovery_diagnostics["prefilter_rejected_count"],
+        "discussion_candidate_count": discovery_diagnostics["discussion_candidate_count"],
+        "marketplace_candidate_count": discovery_diagnostics["marketplace_candidate_count"],
+        "ai_skipped_prefilter_count": discovery_diagnostics["domain_denied_count"] + discovery_diagnostics["prefilter_rejected_count"],
         "ai_scored_count": scoring_diagnostics["ai_scored_count"],
         "kept_count": len(kept),
         "rejected_count": len(rejected) + sum(prefilter_reasons.values()),
@@ -809,10 +929,12 @@ def main() -> int:
     parser.add_argument("--market", action="append", choices=("broward-fl", "northwest-ar"), help="Market slug. Repeat to search multiple markets.")
     parser.add_argument("--all-markets", action="store_true", help="Search all configured markets.")
     parser.add_argument("--query-mode", choices=("exact", "broad", "source", "mixed"), default="mixed", help="Query generation mode.")
+    parser.add_argument("--source-strategy", choices=("broad", "discussion", "marketplace", "mixed"), default="mixed", help="Source-quality strategy for query generation.")
     parser.add_argument("--city-limit", type=int, default=3, help="Maximum cities per market to use when generating queries.")
     parser.add_argument("--queries-per-market", type=int, default=4, help="Maximum rendered queries per market.")
     parser.add_argument("--results-per-query", type=int, default=5, help="Maximum search results to review per query.")
     parser.add_argument("--ai-score", action="store_true", help="Use OPENAI_API_KEY for AI lead scoring when available.")
+    parser.add_argument("--ai-max-candidates", type=int, help="Maximum surviving candidates to send to AI before falling back to rules.")
     parser.add_argument("--min-confidence", type=float, default=DEFAULT_MIN_CONFIDENCE, help="Minimum score required to keep a candidate.")
     parser.add_argument("--show-rejected", action="store_true", help="Include rejected scored examples in dry-run output.")
     parser.add_argument("--debug", action="store_true", help="Include query-level search and scoring diagnostics in dry-run output.")
@@ -832,12 +954,19 @@ def main() -> int:
             markets,
             args.vertical,
             args.query_mode,
+            args.source_strategy,
             args.city_limit,
             args.queries_per_market,
             args.results_per_query,
             args.debug,
         )
-        kept, rejected, score_reasons, scoring_diagnostics = score_candidates(discovered, args.min_confidence, args.ai_score, args.model)
+        kept, rejected, score_reasons, scoring_diagnostics = score_candidates(
+            discovered,
+            args.min_confidence,
+            args.ai_score,
+            args.model,
+            args.ai_max_candidates,
+        )
     except (OSError, ValueError) as exc:
         print(f"Lead scout failed: {exc}", file=sys.stderr)
         return 1
