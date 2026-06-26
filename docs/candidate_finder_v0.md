@@ -4,6 +4,8 @@
 
 The tool does not add an API route, does not change AWS/SAM resources, and does not scrape private or logged-in sites. It only imports when an import URL and Bearer token are explicitly passed.
 
+Source acquisition uses public search result pages and records provider errors when a provider blocks or challenges a query. The current provider order is Mojeek, SearchMySite, then DuckDuckGo Lite fallback.
+
 ## Supported Vertical
 
 `real_estate` is the first vertical and the default:
@@ -21,18 +23,29 @@ Supported market slugs come from `tools/market_packs.json`:
 - `broward-fl`
 - `northwest-ar`
 
-## Real Estate Query Templates
+## Real Estate Query Modes
 
-The `real_estate` vertical uses high-intent public-search templates:
+The `real_estate` vertical supports query modes:
 
-- `"{city}" "looking for a house"`
-- `"{city}" "need a rental"`
-- `"{city}" "private landlord"`
-- `"{city}" "rent to own"`
-- `"{city}" "owner finance"`
-- `"{city}" "moving to" "house"`
-- `"{city}" "does anyone know" "rental"`
-- `"{city}" "ISO" "house"`
+- `exact`: quoted high-intent phrases.
+- `broad`: fewer quotes, broader public-search queries.
+- `source`: source-targeted searches for likely public discussion sources.
+- `mixed`: default mode combining broad, source-targeted, and a few quoted high-intent queries.
+
+Examples in `mixed` mode include:
+
+- `{city} looking for house`
+- `{city} need rental`
+- `{city} private landlord`
+- `{city} rent to own`
+- `{city} moving to house`
+- `site:reddit.com {city} looking for house`
+- `site:reddit.com {city} moving to`
+- `site:craigslist.org {city} wanted house`
+- `site:craigslist.org {city} private landlord`
+- `"{city}" "does anyone know" rental`
+
+`--city-limit` controls how many cities are used per market before query generation. `--queries-per-market` applies after all selected-city queries are generated, so it caps the executed query list per market.
 
 ## Filtering And Scoring
 
@@ -60,18 +73,18 @@ The scorer keeps only candidates where:
 Dry-run output includes raw result count, candidate count after URL dedupe, prefilter rejection count, AI scored count, kept count, rejected count, provider error count, provider errors, rejection reasons, kept candidates, and rejected examples when requested.
 
 ```powershell
-python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 4 --results-per-query 10 --dry-run --show-rejected --debug
-python tools/candidate_finder.py --vertical real_estate --market northwest-ar --queries-per-market 4 --results-per-query 10 --dry-run --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --query-mode mixed --city-limit 3 --queries-per-market 12 --results-per-query 10 --dry-run --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market northwest-ar --query-mode mixed --city-limit 3 --queries-per-market 12 --results-per-query 10 --dry-run --show-rejected --debug
 ```
 
 AI-assisted dry run:
 
 ```powershell
 $env:OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
-python tools/candidate_finder.py --vertical real_estate --market broward-fl --queries-per-market 4 --results-per-query 10 --dry-run --ai-score --show-rejected --debug
+python tools/candidate_finder.py --vertical real_estate --market broward-fl --query-mode mixed --city-limit 3 --queries-per-market 12 --results-per-query 10 --dry-run --ai-score --show-rejected --debug
 ```
 
-`--debug` adds the search queries executed, raw result count per query, first raw titles and URLs before filtering, whether AI scoring was requested/enabled, and whether an OpenAI API key was detected. It does not print the API key.
+`--debug` adds the cities used, generated query count, executed query count, search queries executed, raw result count per query, first raw titles and URLs before filtering, whether AI scoring was requested/enabled, and whether an OpenAI API key was detected. It does not print the API key.
 
 ## Import
 
