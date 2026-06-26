@@ -21,9 +21,21 @@ from typing import Any
 MARKET_PACKS_PATH = Path(__file__).with_name("market_packs.json")
 DEFAULT_MIN_CONFIDENCE = 0.65
 DEFAULT_OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+SEARCH_DELAY_SECONDS = 1.0
 
-SEARCH_PROVIDER_DOMAINS = ("duckduckgo.com", "bing.com", "google.com")
-PRIVATE_OR_NOISY_DOMAINS = ("facebook.com", "instagram.com", "linkedin.com", "nextdoor.com", "x.com", "twitter.com")
+SEARCH_PROVIDER_DOMAINS = (
+    "duckduckgo.com",
+    "bing.com",
+    "google.com",
+)
+PRIVATE_OR_NOISY_DOMAINS = (
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "nextdoor.com",
+    "x.com",
+    "twitter.com",
+)
 DIRECTORY_DOMAINS = (
     "zillow.com",
     "realtor.com",
@@ -34,9 +46,22 @@ DIRECTORY_DOMAINS = (
     "trulia.com",
     "apartments.com",
     "rent.com",
+    "forrent.com",
     "hotpads.com",
+    "floridarentals.com",
+    "rentuntilyouown.com",
 )
-DIRECTORY_TERMS = ("real estate agent", "realtor profile", "agent directory", "top agents", "find an agent", "business directory")
+DIRECTORY_TERMS = (
+    "real estate agent",
+    "realtor profile",
+    "realtor",
+    "agent directory",
+    "top agents",
+    "find an agent",
+    "business directory",
+    "houses for rent",
+    "rent to own homes",
+)
 SEO_OR_PROGRAM_TERMS = (
     "homebuyer program",
     "first time home buyer program",
@@ -50,20 +75,67 @@ SEO_OR_PROGRAM_TERMS = (
     "listings",
     "homes for sale",
     "apartments for rent",
+    "housing authority",
+    "housing choice voucher",
+    "low-income housing",
+    "vacation rentals",
+    "cash home buyers",
+    "we buy houses",
 )
+NON_LEAD_SERVICE_TERMS = (
+    "house sitter",
+    "house sitting",
+    "house minder",
+    "pet sitter",
+    "caregiver",
+    "job opportunity",
+)
+
 
 VERTICALS: dict[str, dict[str, Any]] = {
     "real_estate": {
-        "query_templates": (
-            '"{city}" "looking for a house"',
-            '"{city}" "need a rental"',
-            '"{city}" "private landlord"',
-            '"{city}" "rent to own"',
-            '"{city}" "owner finance"',
-            '"{city}" "moving to" "house"',
-            '"{city}" "does anyone know" "rental"',
-            '"{city}" "ISO" "house"',
-        ),
+        "query_templates": {
+            "exact": (
+                '"{city}" "looking for a house"',
+                '"{city}" "need a rental"',
+                '"{city}" "private landlord"',
+                '"{city}" "rent to own"',
+                '"{city}" "owner finance"',
+                '"{city}" "moving to" "house"',
+                '"{city}" "does anyone know" "rental"',
+                '"{city}" "ISO" "house"',
+            ),
+            "broad": (
+                "{city} looking for house",
+                "{city} need rental",
+                "{city} private landlord",
+                "{city} rent to own",
+                "{city} owner finance",
+                "{city} moving to house",
+                "{city} does anyone know rental",
+                "{city} ISO house",
+            ),
+            "source": (
+                "site:reddit.com {city} looking for house",
+                "site:reddit.com {city} moving to",
+                "site:reddit.com {city} need rental",
+                "site:craigslist.org {city} wanted house",
+                "site:craigslist.org {city} private landlord",
+                "site:craigslist.org {city} rent to own",
+            ),
+            "mixed": (
+                "{city} looking for house",
+                "{city} need rental",
+                "{city} private landlord",
+                "{city} rent to own",
+                "{city} moving to house",
+                "site:reddit.com {city} looking for house",
+                "site:reddit.com {city} moving to",
+                "site:craigslist.org {city} wanted house",
+                "site:craigslist.org {city} private landlord",
+                '"{city}" "does anyone know" rental',
+            ),
+        },
         "lead_terms": {
             "buy": ("looking for a house", "looking for home", "buy a house", "house hunting", "iso house"),
             "rent": ("need a rental", "looking for rental", "iso rental", "rental house", "rent a house"),
@@ -91,7 +163,7 @@ class DuckDuckGoParser(HTMLParser):
         if tag == "a" and ("result__a" in classes or "result-link" in classes):
             if self._current and self._current.get("title") and self._current.get("source_url"):
                 self.results.append(self._current)
-            self._current = {"title": "", "source_url": _clean_ddg_url(attr.get("href", "")), "snippet": ""}
+            self._current = {"title": "", "source_url": _clean_ddg_url(attr.get("href", "")), "snippet": "", "provider": "duckduckgo"}
             self._in_link = True
         elif tag in ("a", "div", "td") and ("result__snippet" in classes or "result-snippet" in classes) and self._current is not None:
             self._in_snippet = True
@@ -125,6 +197,94 @@ class DuckDuckGoParser(HTMLParser):
         super().close()
 
 
+class MojeekParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.results: list[dict[str, str]] = []
+        self._current: dict[str, str] | None = None
+        self._in_title = False
+        self._in_snippet = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {key: value or "" for key, value in attrs}
+        classes = attr.get("class", "")
+        if tag == "a" and "title" in classes:
+            self._current = {"title": "", "source_url": html.unescape(attr.get("href", "")), "snippet": "", "provider": "mojeek"}
+            self._in_title = True
+        elif tag == "p" and "s" in classes and self._current is not None:
+            self._in_snippet = True
+
+    def handle_data(self, data: str) -> None:
+        if self._current is None:
+            return
+        text = " ".join(data.split())
+        if not text:
+            return
+        if self._in_title:
+            self._current["title"] = (self._current.get("title", "") + " " + text).strip()
+        elif self._in_snippet:
+            self._current["snippet"] = (self._current.get("snippet", "") + " " + text).strip()
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._in_title:
+            self._in_title = False
+        elif tag == "p" and self._in_snippet:
+            self._in_snippet = False
+            if self._current and self._current.get("title") and self._current.get("source_url"):
+                self.results.append(self._current)
+            self._current = None
+
+    def close(self) -> None:
+        if self._current and self._current.get("title") and self._current.get("source_url"):
+            self.results.append(self._current)
+            self._current = None
+        super().close()
+
+
+class SearchMySiteParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.results: list[dict[str, str]] = []
+        self._current: dict[str, str] | None = None
+        self._in_title = False
+        self._in_snippet = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {key: value or "" for key, value in attrs}
+        classes = attr.get("class", "")
+        if tag == "a" and classes == "result-title":
+            self._current = {"title": "", "source_url": html.unescape(attr.get("href", "")), "snippet": "", "provider": "searchmysite"}
+            self._in_title = True
+        elif tag == "p" and "sms-p1" in classes and self._current is not None:
+            self._in_snippet = True
+
+    def handle_data(self, data: str) -> None:
+        if self._current is None:
+            return
+        text = " ".join(data.split())
+        if not text:
+            return
+        if self._in_title:
+            self._current["title"] = (self._current.get("title", "") + " " + text).strip()
+        elif self._in_snippet:
+            self._current["snippet"] = (self._current.get("snippet", "") + " " + text).strip()
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._in_title:
+            self._in_title = False
+        elif tag == "p" and self._in_snippet:
+            self._in_snippet = False
+            if self._current and self._current.get("title") and self._current.get("source_url"):
+                self.results.append(self._current)
+            self._current = None
+
+    def close(self) -> None:
+        if self._current and self._current.get("title") and self._current.get("source_url"):
+            self.results.append(self._current)
+            self._current = None
+        super().close()
+
+
 def _clean_ddg_url(url: str) -> str:
     url = html.unescape(url)
     parsed = urllib.parse.urlparse(url)
@@ -136,6 +296,11 @@ def _clean_ddg_url(url: str) -> str:
     return url
 
 
+def page_is_challenge(body: str) -> bool:
+    lowered = body.lower()
+    return any(term in lowered for term in ("captcha", "challenge/verify", "anomaly.js", "cc=botnet"))
+
+
 def load_market_packs(path: Path = MARKET_PACKS_PATH) -> dict[str, dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -144,14 +309,14 @@ def load_market_packs(path: Path = MARKET_PACKS_PATH) -> dict[str, dict[str, Any
     return data
 
 
-def render_queries(pack: dict[str, Any], vertical: str, per_market: int) -> list[dict[str, str]]:
+def render_queries(pack: dict[str, Any], vertical: str, query_mode: str, city_limit: int, per_market: int) -> tuple[list[dict[str, str]], dict[str, Any]]:
     config = VERTICALS[vertical]
-    queries: list[dict[str, str]] = []
-    cities = pack.get("cities") or [""]
+    generated: list[dict[str, str]] = []
+    cities = (pack.get("cities") or [""])[:city_limit]
     counties = pack.get("counties") or [""]
     for city in cities:
         county = counties[0] if counties else ""
-        for template in config["query_templates"]:
+        for template in config["query_templates"][query_mode]:
             query = template.format(
                 market=pack.get("market", ""),
                 market_slug=pack.get("market_slug", ""),
@@ -161,13 +326,32 @@ def render_queries(pack: dict[str, Any], vertical: str, per_market: int) -> list
             )
             query = " ".join(query.split())
             if query:
-                queries.append({"query": query, "city": city, "county": county})
-            if len(queries) >= per_market:
-                return queries
-    return queries
+                generated.append({"query": query, "city": city, "county": county})
+    diagnostics = {
+        "cities_used": cities,
+        "generated_query_count": len(generated),
+        "executed_query_count": min(len(generated), per_market),
+    }
+    return generated[:per_market], diagnostics
 
 
-def public_search(query: str, limit: int) -> list[dict[str, str]]:
+def mojeek_search(query: str, limit: int) -> list[dict[str, str]]:
+    params = urllib.parse.urlencode({"q": query})
+    request = urllib.request.Request(
+        f"https://www.mojeek.com/search?{params}",
+        headers={"User-Agent": "Mozilla/5.0 ListlyLeadScout/1.0", "Accept": "text/html"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        body = response.read().decode("utf-8", errors="replace")
+    if page_is_challenge(body):
+        raise urllib.error.URLError("mojeek returned challenge page")
+    parser = MojeekParser()
+    parser.feed(body)
+    parser.close()
+    return parser.results[:limit]
+
+
+def duckduckgo_search(query: str, limit: int) -> list[dict[str, str]]:
     params = urllib.parse.urlencode({"q": query})
     request = urllib.request.Request(
         f"https://lite.duckduckgo.com/lite/?{params}",
@@ -175,10 +359,43 @@ def public_search(query: str, limit: int) -> list[dict[str, str]]:
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         body = response.read().decode("utf-8", errors="replace")
+    if page_is_challenge(body):
+        raise urllib.error.URLError("duckduckgo returned challenge page")
     parser = DuckDuckGoParser()
     parser.feed(body)
     parser.close()
     return parser.results[:limit]
+
+
+def searchmysite_search(query: str, limit: int) -> list[dict[str, str]]:
+    params = urllib.parse.urlencode({"q": query})
+    request = urllib.request.Request(
+        f"https://searchmysite.net/search/?{params}",
+        headers={"User-Agent": "Mozilla/5.0 ListlyLeadScout/1.0", "Accept": "text/html"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        body = response.read().decode("utf-8", errors="replace")
+    if page_is_challenge(body):
+        raise urllib.error.URLError("searchmysite returned challenge page")
+    parser = SearchMySiteParser()
+    parser.feed(body)
+    parser.close()
+    return parser.results[:limit]
+
+
+def public_search(query: str, limit: int) -> list[dict[str, str]]:
+    errors: list[str] = []
+    for provider in (mojeek_search, searchmysite_search, duckduckgo_search):
+        try:
+            results = provider(query, limit)
+        except urllib.error.URLError as exc:
+            errors.append(str(exc))
+            continue
+        if results:
+            return results
+    if errors:
+        raise urllib.error.URLError("; ".join(errors))
+    return []
 
 
 def host_matches(url: str, domains: tuple[str, ...]) -> bool:
@@ -206,6 +423,8 @@ def prefilter(result: dict[str, str], pack: dict[str, Any], city: str, county: s
         return "private_or_login_site"
     if host_matches(url, DIRECTORY_DOMAINS) or contains_any(text, DIRECTORY_TERMS):
         return "directory_or_listing"
+    if contains_any(text, NON_LEAD_SERVICE_TERMS):
+        return "service_or_job_page"
     if contains_any(text, SEO_OR_PROGRAM_TERMS):
         return "seo_or_program_page"
     if not geography_matches(text, pack, city, county):
@@ -228,11 +447,11 @@ def infer_intent_and_role(text: str, vertical: str) -> tuple[str, str]:
     lowered = text.lower()
     for intent, terms in VERTICALS[vertical]["lead_terms"].items():
         if any(term in lowered for term in terms):
-            if intent == "rent":
+            if intent in ("rent",):
                 return intent, "renter"
-            if intent == "private_landlord":
+            if intent in ("private_landlord",):
                 return intent, "landlord"
-            if intent == "sell":
+            if intent in ("sell",):
                 return intent, "seller"
             return intent, "buyer"
     return "unknown", "unknown"
@@ -267,7 +486,12 @@ def rule_score(candidate: dict[str, Any], min_confidence: float) -> dict[str, An
     text = f"{candidate.get('title', '')} {candidate.get('snippet', '')}".lower()
     vertical = str(candidate.get("vertical", "real_estate"))
     intent, role = infer_intent_and_role(text, vertical)
-    matched_terms = [term for terms in VERTICALS[vertical]["lead_terms"].values() for term in terms if term in text]
+    matched_terms = [
+        term
+        for terms in VERTICALS[vertical]["lead_terms"].values()
+        for term in terms
+        if term in text
+    ]
     directory_or_ad = contains_any(text, DIRECTORY_TERMS + SEO_OR_PROGRAM_TERMS)
     confidence = 0.35
     if matched_terms:
@@ -347,7 +571,7 @@ def ai_score(candidate: dict[str, Any], api_key: str, model: str) -> dict[str, A
 
 
 def normalize_score(score: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
-    return {
+    normalized = {
         "is_lead": bool(score.get("is_lead")),
         "confidence": float(score.get("confidence") or 0.0),
         "vertical": str(score.get("vertical") or candidate.get("vertical") or "real_estate"),
@@ -360,6 +584,7 @@ def normalize_score(score: dict[str, Any], candidate: dict[str, Any]) -> dict[st
         "cleaned_message": str(score.get("cleaned_message") or candidate.get("message") or candidate.get("snippet") or ""),
         "scorer": str(score.get("scorer") or "unknown"),
     }
+    return normalized
 
 
 def keep_score(score: dict[str, Any], min_confidence: float) -> tuple[bool, str]:
@@ -375,12 +600,18 @@ def keep_score(score: dict[str, Any], min_confidence: float) -> tuple[bool, str]
 
 
 def raw_example(result: dict[str, str]) -> dict[str, str]:
-    return {"title": result.get("title", ""), "source_url": result.get("source_url", "")}
+    return {
+        "title": result.get("title", ""),
+        "source_url": result.get("source_url", ""),
+        "provider": result.get("provider", ""),
+    }
 
 
 def discover(
     markets: list[str],
     vertical: str,
+    query_mode: str,
+    city_limit: int,
     per_market: int,
     per_query: int,
     debug: bool,
@@ -394,6 +625,9 @@ def discover(
         "candidate_after_dedupe_count": 0,
         "provider_error_count": 0,
         "provider_errors": [],
+        "cities_used": {},
+        "generated_query_count": 0,
+        "executed_query_count": 0,
     }
     debug_queries: list[dict[str, Any]] = []
 
@@ -401,14 +635,22 @@ def discover(
         pack = packs.get(market_slug)
         if not pack:
             raise ValueError(f"unknown market: {market_slug}")
-        for query_info in render_queries(pack, vertical, per_market):
+        query_infos, query_diagnostics = render_queries(pack, vertical, query_mode, city_limit, per_market)
+        diagnostics["cities_used"][market_slug] = query_diagnostics["cities_used"]
+        diagnostics["generated_query_count"] += query_diagnostics["generated_query_count"]
+        diagnostics["executed_query_count"] += query_diagnostics["executed_query_count"]
+        for query_info in query_infos:
             query = query_info["query"]
             city = query_info["city"]
             county = query_info["county"]
             try:
                 results = public_search(query, per_query)
             except urllib.error.URLError as exc:
-                error = {"market": market_slug, "query": query, "error": str(exc)}
+                error = {
+                    "market": market_slug,
+                    "query": query,
+                    "error": str(exc),
+                }
                 diagnostics["provider_error_count"] += 1
                 diagnostics["provider_errors"].append(error)
                 rejected["provider_error"] += 1
@@ -422,6 +664,7 @@ def discover(
                             "provider_error": error["error"],
                         }
                     )
+                time.sleep(SEARCH_DELAY_SECONDS)
                 continue
             diagnostics["raw_result_count"] += len(results)
             if debug:
@@ -445,7 +688,7 @@ def discover(
                     rejected[reason] += 1
                     continue
                 candidates.append(normalize_result(result, pack, vertical, query, city, county))
-            time.sleep(0.5)
+            time.sleep(SEARCH_DELAY_SECONDS)
 
     diagnostics["prefilter_rejected_count"] = sum(rejected.values()) - rejected.get("provider_error", 0) - rejected.get("duplicate_source_url", 0)
     if debug:
@@ -539,6 +782,9 @@ def build_report(
     }
     if debug:
         report["debug"] = {
+            "cities_used": discovery_diagnostics["cities_used"],
+            "generated_query_count": discovery_diagnostics["generated_query_count"],
+            "executed_query_count": discovery_diagnostics["executed_query_count"],
             "ai_scoring_requested": scoring_diagnostics["ai_requested"],
             "ai_scoring_enabled": scoring_diagnostics["ai_enabled"],
             "openai_api_key_detected": scoring_diagnostics["openai_api_key_detected"],
@@ -562,6 +808,8 @@ def main() -> int:
     parser.add_argument("--vertical", choices=tuple(VERTICALS), default="real_estate", help="Lead vertical to scout.")
     parser.add_argument("--market", action="append", choices=("broward-fl", "northwest-ar"), help="Market slug. Repeat to search multiple markets.")
     parser.add_argument("--all-markets", action="store_true", help="Search all configured markets.")
+    parser.add_argument("--query-mode", choices=("exact", "broad", "source", "mixed"), default="mixed", help="Query generation mode.")
+    parser.add_argument("--city-limit", type=int, default=3, help="Maximum cities per market to use when generating queries.")
     parser.add_argument("--queries-per-market", type=int, default=4, help="Maximum rendered queries per market.")
     parser.add_argument("--results-per-query", type=int, default=5, help="Maximum search results to review per query.")
     parser.add_argument("--ai-score", action="store_true", help="Use OPENAI_API_KEY for AI lead scoring when available.")
@@ -583,6 +831,8 @@ def main() -> int:
         discovered, prefilter_reasons, discovery_diagnostics = discover(
             markets,
             args.vertical,
+            args.query_mode,
+            args.city_limit,
             args.queries_per_market,
             args.results_per_query,
             args.debug,
