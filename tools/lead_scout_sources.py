@@ -8,6 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import date, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
@@ -16,6 +17,31 @@ from typing import Any, Protocol
 DEFAULT_FETCH_BYTES = 120_000
 DEFAULT_TIMEOUT_SECONDS = 20
 BODY_EXCERPT_CHARS = 500
+DATE_SCAN_CHARS = 40_000
+DATE_PATTERNS = (
+    re.compile(r"\b(\d{1,2})-(\d{1,2})-(\d{4})(?:,\s+\d{1,2}:\d{2}\s*[AP]M)?\b", re.IGNORECASE),
+    re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+\d{1,2}:\d{2}\s*[AP]M)?\b", re.IGNORECASE),
+    re.compile(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+        r"(\d{1,2}),\s+(\d{4})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"),
+)
+MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
 
 
 @dataclass(frozen=True)
@@ -51,6 +77,7 @@ class PageSummaryParser(HTMLParser):
         self.title = ""
         self.description = ""
         self.body_parts: list[str] = []
+        self.text_parts: list[str] = []
         self._in_title = False
         self._in_skip = False
 
@@ -71,6 +98,8 @@ class PageSummaryParser(HTMLParser):
             self.title = (self.title + " " + text).strip()
         elif not self._in_skip and len(" ".join(self.body_parts)) < BODY_EXCERPT_CHARS:
             self.body_parts.append(text)
+        if not self._in_skip and len(" ".join(self.text_parts)) < DATE_SCAN_CHARS:
+            self.text_parts.append(text)
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "title":
@@ -81,6 +110,10 @@ class PageSummaryParser(HTMLParser):
     @property
     def body_excerpt(self) -> str:
         return " ".join(" ".join(self.body_parts).split())[:BODY_EXCERPT_CHARS]
+
+    @property
+    def searchable_text(self) -> str:
+        return " ".join(" ".join(self.text_parts).split())[:DATE_SCAN_CHARS]
 
 
 class ManualPublicUrlSeedAdapter:
@@ -106,6 +139,7 @@ class ManualPublicUrlSeedAdapter:
                 "adapter": self.name,
                 "approved_source": "manual_seed",
                 "fetch_error": page.get("fetch_error", ""),
+                "source_post_date": str(row.get("source_post_date") or row.get("extracted_date") or page.get("source_post_date") or ""),
             }
             results.append(
                 SourceResult(
@@ -164,7 +198,7 @@ def fetch_page_summary(url: str) -> dict[str, str]:
         return {"fetch_error": str(exc)}
     text = raw.decode("utf-8", errors="replace")
     if "html" not in content_type.lower():
-        return {"body_excerpt": excerpt_text(text), "fetch_error": ""}
+        return {"body_excerpt": excerpt_text(text), "source_post_date": extract_source_post_date(text), "fetch_error": ""}
     parser = PageSummaryParser()
     parser.feed(text)
     parser.close()
@@ -172,9 +206,40 @@ def fetch_page_summary(url: str) -> dict[str, str]:
         "title": parser.title,
         "description": parser.description,
         "body_excerpt": parser.body_excerpt,
+        "source_post_date": extract_source_post_date(parser.searchable_text or text),
         "fetch_error": "",
     }
 
 
 def excerpt_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()[:BODY_EXCERPT_CHARS]
+
+
+def extract_source_post_date(text: str) -> str:
+    search = re.sub(r"\s+", " ", text)[:DATE_SCAN_CHARS]
+    for pattern in DATE_PATTERNS:
+        match = pattern.search(search)
+        if not match:
+            continue
+        parsed = parse_date_match(match)
+        if parsed:
+            return parsed.isoformat()
+    lowered = search.lower()
+    today = date.today()
+    if re.search(r"\btoday,\s+\d{1,2}:\d{2}\s*[ap]m\b", lowered):
+        return today.isoformat()
+    if re.search(r"\byesterday,\s+\d{1,2}:\d{2}\s*[ap]m\b", lowered):
+        return (today - timedelta(days=1)).isoformat()
+    return ""
+
+
+def parse_date_match(match: re.Match[str]) -> date | None:
+    groups = match.groups()
+    try:
+        if len(groups) >= 3 and groups[0].isalpha():
+            return date(int(groups[2]), MONTHS[groups[0].lower()], int(groups[1]))
+        if len(groups) >= 3 and len(groups[0]) == 4:
+            return date(int(groups[0]), int(groups[1]), int(groups[2]))
+        return date(int(groups[2]), int(groups[0]), int(groups[1]))
+    except ValueError:
+        return None

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,9 @@ def source_result_to_candidate(result: SourceResult, pack: dict[str, Any], conte
     }
     if result.metadata:
         candidate["source_metadata"] = result.metadata
+    source_post_date = result.metadata.get("source_post_date", "") if result.metadata else ""
+    if source_post_date:
+        candidate["source_post_date"] = source_post_date
     return {key: value for key, value in candidate.items() if value not in (None, "")}
 
 
@@ -62,6 +65,8 @@ def discover_manual_seed(
     vertical: str,
     fetch_pages: bool,
     debug: bool,
+    max_age_days: int | None,
+    allow_unknown_date: bool,
 ) -> tuple[list[dict[str, Any]], Counter[str], dict[str, Any]]:
     packs = load_market_packs()
     adapter = ManualPublicUrlSeedAdapter(seed_file, fetch_pages=fetch_pages)
@@ -79,6 +84,9 @@ def discover_manual_seed(
         "domain_denied_count": 0,
         "discussion_candidate_count": 0,
         "marketplace_candidate_count": 0,
+        "stale_rejected_count": 0,
+        "unknown_date_rejected_count": 0,
+        "dated_candidate_count": 0,
     }
     debug_items: list[dict[str, Any]] = []
 
@@ -109,6 +117,7 @@ def discover_manual_seed(
                         "market": market_slug,
                         "title": result.title,
                         "source_url": result.source_url,
+                        "source_post_date": result.metadata.get("source_post_date", ""),
                         "fetch_error": result.metadata.get("fetch_error", ""),
                     }
                 )
@@ -126,6 +135,23 @@ def discover_manual_seed(
             if reason:
                 rejected[reason] += 1
                 continue
+            source_post_date = result.metadata.get("source_post_date", "") if result.metadata else ""
+            if not source_post_date and not allow_unknown_date:
+                diagnostics["unknown_date_rejected_count"] += 1
+                rejected["unknown_source_date"] += 1
+                continue
+            if source_post_date:
+                parsed_date = parse_source_post_date(source_post_date)
+                if parsed_date is None and not allow_unknown_date:
+                    diagnostics["unknown_date_rejected_count"] += 1
+                    rejected["unknown_source_date"] += 1
+                    continue
+                if parsed_date is not None:
+                    diagnostics["dated_candidate_count"] += 1
+                if parsed_date is not None and is_stale_source(parsed_date, max_age_days):
+                    diagnostics["stale_rejected_count"] += 1
+                    rejected["stale_source"] += 1
+                    continue
             diagnostics["discussion_candidate_count"] += 1
             candidates.append(source_result_to_candidate(result, pack, context))
 
@@ -138,6 +164,19 @@ def discover_manual_seed(
     if debug:
         diagnostics["debug"] = {"queries": debug_items}
     return candidates, rejected, diagnostics
+
+
+def parse_source_post_date(source_post_date: str) -> date | None:
+    try:
+        return date.fromisoformat(source_post_date)
+    except ValueError:
+        return None
+
+
+def is_stale_source(source_post_date: date, max_age_days: int | None) -> bool:
+    if max_age_days is None:
+        return False
+    return (date.today() - source_post_date).days > max_age_days
 
 
 def write_output(path: str | None, payload: Any) -> None:
@@ -155,14 +194,16 @@ def main() -> int:
     parser.add_argument("--market", action="append", choices=("broward-fl", "northwest-ar"), help="Market slug. Repeat to scan multiple markets.")
     parser.add_argument("--all-markets", action="store_true", help="Run against all configured markets.")
     parser.add_argument("--no-fetch-pages", action="store_true", help="Use seed-provided URL/title/snippet values only.")
+    parser.add_argument("--max-age-days", type=int, help="Reject dated source posts older than this many days.")
+    parser.add_argument("--allow-unknown-date", action="store_true", help="Allow otherwise valid seed candidates when no source post date is found.")
     parser.add_argument("--ai-score", action="store_true", help="Use OPENAI_API_KEY for AI lead scoring when available.")
     parser.add_argument("--ai-max-candidates", type=int, help="Maximum surviving candidates to send to AI before falling back to rules.")
     parser.add_argument("--min-confidence", type=float, default=DEFAULT_MIN_CONFIDENCE)
     parser.add_argument("--show-rejected", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--output", help="Write dry-run report JSON to this file instead of stdout.")
-    parser.add_argument("--import-url", default=DEFAULT_IMPORT_URL, help="Target /v1/candidates/import URL.")
-    parser.add_argument("--token", default=os.environ.get("CANDIDATE_IMPORT_TOKEN"), help="Bearer token from /v1/agents/login.")
+    parser.add_argument("--import-url", help=f"Target /v1/candidates/import URL. Default when importing: {DEFAULT_IMPORT_URL}")
+    parser.add_argument("--token", help="Bearer token from /v1/agents/login.")
     args = parser.parse_args()
 
     markets = ["broward-fl", "northwest-ar"] if args.all_markets else args.market
@@ -176,6 +217,8 @@ def main() -> int:
             args.vertical,
             not args.no_fetch_pages,
             args.debug,
+            args.max_age_days,
+            args.allow_unknown_date,
         )
         kept, rejected, score_reasons, scoring_diagnostics = score_candidates(
             discovered,
@@ -198,17 +241,20 @@ def main() -> int:
         args.show_rejected,
         args.debug,
     )
+    report["stale_rejected_count"] = discovery_diagnostics["stale_rejected_count"]
+    report["unknown_date_rejected_count"] = discovery_diagnostics["unknown_date_rejected_count"]
+    report["dated_candidate_count"] = discovery_diagnostics["dated_candidate_count"]
     write_output(args.output, report)
 
-    if not args.token:
-        print("Import skipped: pass --token or CANDIDATE_IMPORT_TOKEN to import kept candidates.", file=sys.stderr)
+    if not args.import_url or not args.token:
+        print("Import skipped: pass both --import-url and --token to import kept candidates.", file=sys.stderr)
         return 0
     if not kept:
         print("Import skipped: no kept candidates found.", file=sys.stderr)
         return 0
 
     try:
-        result = import_candidates(args.import_url, args.token, kept)
+        result = import_candidates(args.import_url or DEFAULT_IMPORT_URL, args.token, kept)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"Import failed: {exc}", file=sys.stderr)
         return 1
