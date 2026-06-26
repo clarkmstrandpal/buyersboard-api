@@ -88,6 +88,28 @@ python tools/candidate_finder.py --vertical real_estate --market broward-fl --so
 
 `--debug` adds the cities used, generated query count, executed query count, search queries executed, raw result count per query, first raw titles and URLs before filtering, whether AI scoring was requested/enabled, and whether an OpenAI API key was detected. It does not print the API key.
 
+## Validation Findings
+
+Lead Scout Core v1 is a local framework and foundation for lead discovery. It provides market-aware query generation, source-quality strategies, domain deny lists, prefiltering, optional AI scoring, dry-run diagnostics, and compatibility with `tools/candidate_import.py`.
+
+Local validation showed that generic public search providers are not reliable enough to be the main production source for sellable real estate leads:
+
+- Broward discussion dry-run: `raw_result_count=0`, `provider_error_count=12`, `kept_count=0`.
+- Northwest Arkansas discussion dry-run: `raw_result_count=3`, `provider_error_count=11`, `kept_count=0`, with `wrong_geography=3`.
+
+Generic search is useful only as a weak fallback. Providers may block or challenge requests, and successful responses can still return generic listings, SEO pages, supply pages, or wrong-geography results. No candidates should be imported from these dry-runs.
+
+Real production discovery needs dedicated source adapters that target public demand/user-intent posts directly.
+
+## Next Source Adapters
+
+The next iteration should add source-specific adapters instead of relying on generic search:
+
+- Reddit/public forum adapter.
+- Marketplace/wanted-post adapter.
+- Google Programmable Search/custom search adapter.
+- Manual public URL seed/import adapter.
+
 ## Import
 
 Import is never automatic. To POST kept candidates to the existing authenticated Discovery Inbox endpoint, pass both `--import-url` and `--token`:
