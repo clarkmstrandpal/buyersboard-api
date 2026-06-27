@@ -35,7 +35,7 @@ from lead_scout_sources import SourceContext, SourceResult, normalize_url
 DEFAULT_IMPORT_URL = "https://2v0q4zm2v6.execute-api.us-east-1.amazonaws.com/dev/v1/candidates/import"
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_FETCH_BYTES = 1_000_000
-USER_AGENT = "ListlyLeadScout/1.0 CraigslistRSS"
+DEFAULT_USER_AGENT = "ListlyHomesLeadScout/0.1 (+https://listlyhomes.com)"
 
 
 class CraigslistRssError(RuntimeError):
@@ -71,9 +71,10 @@ class HtmlTextParser(HTMLParser):
 class CraigslistRssAdapter:
     name = "craigslist_rss"
 
-    def __init__(self, feed_urls: list[str], limit: int, debug: bool = False) -> None:
+    def __init__(self, feed_urls: list[str], limit: int, user_agent: str, debug: bool = False) -> None:
         self.feed_urls = feed_urls
         self.limit = limit
+        self.user_agent = user_agent
         self.debug = debug
         self.errors: list[dict[str, str]] = []
 
@@ -81,7 +82,7 @@ class CraigslistRssAdapter:
         results: list[SourceResult] = []
         for feed_url in self.feed_urls:
             try:
-                items = fetch_feed_items(feed_url, self.limit)
+                items = fetch_feed_items(feed_url, self.limit, self.user_agent)
             except CraigslistRssError as exc:
                 self.errors.append({"feed_url": feed_url, "error": str(exc)})
                 continue
@@ -116,12 +117,13 @@ def load_feed_urls(feed_urls: list[str] | None, seed_file: str | None) -> list[s
     return normalized
 
 
-def fetch_feed_items(feed_url: str, limit: int) -> list[dict[str, str]]:
+def fetch_feed_items(feed_url: str, limit: int, user_agent: str) -> list[dict[str, str]]:
     request = urllib.request.Request(
         feed_url,
         headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
+            "User-Agent": user_agent,
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            "Accept-Language": "en-US,en;q=0.9",
         },
     )
     try:
@@ -274,6 +276,7 @@ def discover_craigslist_rss(
     market_slug: str,
     limit: int,
     max_age_days: int,
+    user_agent: str,
     debug: bool,
 ) -> tuple[list[dict[str, Any]], Counter[str], dict[str, Any]]:
     packs = load_market_packs()
@@ -290,7 +293,7 @@ def discover_craigslist_rss(
         county=county,
         state=str(pack.get("state", "")),
     )
-    adapter = CraigslistRssAdapter(feed_urls, limit, debug=debug)
+    adapter = CraigslistRssAdapter(feed_urls, limit, user_agent=user_agent, debug=debug)
     candidates: list[dict[str, Any]] = []
     rejected: Counter[str] = Counter()
     seen_urls: set[str] = set()
@@ -383,6 +386,7 @@ def main() -> int:
     parser.add_argument("--seed-file", help="Text file with one Craigslist RSS feed URL per line.")
     parser.add_argument("--max-age-days", type=int, default=14)
     parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--user-agent", default=DEFAULT_USER_AGENT, help="User-Agent header for Craigslist RSS requests.")
     parser.add_argument("--dry-run", action="store_true", default=True)
     parser.add_argument("--show-rejected", action="store_true")
     parser.add_argument("--debug", action="store_true")
@@ -401,6 +405,7 @@ def main() -> int:
             args.market,
             args.limit,
             args.max_age_days,
+            args.user_agent,
             args.debug,
         )
         kept, rejected, score_reasons, scoring_diagnostics = score_candidates(
