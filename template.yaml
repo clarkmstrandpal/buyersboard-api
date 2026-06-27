@@ -154,9 +154,20 @@ Resources:
       Environment:
         Variables:
           TABLE_LEADS: buyersboard_leads
+          TABLE_AGENTS: buyersboard_agents
+          JWT_SECRET_PARAM: /buyersboard/dev/jwt_secret
       Policies:
         - DynamoDBReadPolicy:
             TableName: buyersboard_leads
+        - Statement:
+            Effect: Allow
+            Action: [ "dynamodb:Query" ]
+            Resource:
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/buyersboard_agents/index/email_index
+        - Statement:
+            Effect: Allow
+            Action: [ "ssm:GetParameter" ]
+            Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/buyersboard/dev/jwt_secret
       Events:
         GetLeadsList:
           Type: HttpApi
