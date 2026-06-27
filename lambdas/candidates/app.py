@@ -216,8 +216,8 @@ def _normalize_candidate(raw: Dict[str, Any]) -> Dict[str, Any]:
     status = (_to_str(raw.get("status")) or "new").lower()
     if status not in VALID_STATUSES:
         status = "new"
-    review_status = _review_status(raw.get("review_status"))
-    published = _to_bool(raw.get("published"), False)
+    review_status = "pending"
+    published = False
     snippet = _to_str(raw.get("snippet"))
     message = _to_str(raw.get("message"))
     summary = _to_str(raw.get("summary")) or message or snippet or _to_str(raw.get("title"))

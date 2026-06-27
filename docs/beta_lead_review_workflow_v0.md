@@ -6,7 +6,7 @@ This workflow keeps raw discovered candidates out of the customer-facing realtor
 
 1. A local source adapter finds a public candidate lead.
 2. Lead Scout AI/rules score and filter the candidate.
-3. The reviewed candidate is imported into the Discovery Inbox with `review_status=pending` and `published=false`.
+3. The candidate is imported into the Discovery Inbox with `review_status=pending` and `published=false`, regardless of any review fields in the source payload.
 4. An authenticated internal reviewer opens the Discovery Inbox and reviews the candidate.
 5. The reviewer rejects the candidate, approves it for later, or approves and publishes it.
 6. Paying realtor/customer lead lists only show candidate-origin leads after `review_status=approved` and `published=true`.
@@ -15,7 +15,7 @@ Manual billing remains outside the system for now. This does not add Stripe, Twi
 
 ## Candidate Fields
 
-Imported candidates default missing review fields to:
+Imported candidates always start with:
 
 ```json
 {
