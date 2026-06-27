@@ -17,6 +17,8 @@ https://fayar.craigslist.org/search/hhh?format=rss&query=wanted
 
 Use market-appropriate feeds. Broward often appears under the Miami Craigslist region; Northwest Arkansas often appears under the Fayetteville Craigslist region.
 
+Craigslist may return HTTP 403 depending on the current network, feed URL, or request headers. The adapter sends a normal identifiable User-Agent by default: `ListlyHomesLeadScout/0.1 (+https://listlyhomes.com)`. You can override it with `--user-agent` for local testing. If 403 responses persist, use `lead_scout_manual_seed.py` with approved public URLs or a managed public search source instead.
+
 ## Dry Run
 
 Dry-run is the default. Nothing imports unless both `--import-url` and `--token` are passed.
