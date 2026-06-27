@@ -1,0 +1,3 @@
+title,original_text,summary,source,source_url,source_post_date,vertical,market,market_slug,city,state,zip,lead_type,intent,urgency,contact_method
+Example public rental request,"Example: public post says the household is looking for a rental near downtown within 30 days.","Looking for a rental soon.",manual,https://example.com/public-post-1,2026-06-01,real_estate,northwest-ar,northwest-ar,Fayetteville,AR,72701,renter,rent,high,source_message
+Example public buyer request,"Example: public post says a family is moving to the area and looking for a house.","Moving family looking for a house.",manual,https://example.com/public-post-2,2026-06-02,real_estate,broward-fl,broward-fl,Fort Lauderdale,FL,33301,buyer,buy,medium,source_message
