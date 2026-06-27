@@ -1,0 +1,6 @@
+# Harmless examples only. Replace with manually approved public Craigslist RSS URLs.
+# Broward searches may use the Miami Craigslist region:
+# https://miami.craigslist.org/search/hhh?format=rss&query=wanted
+#
+# Northwest Arkansas searches may use the Fayetteville Craigslist region:
+# https://fayar.craigslist.org/search/hhh?format=rss&query=wanted
