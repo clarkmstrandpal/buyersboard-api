@@ -6,7 +6,7 @@ Manual billing remains outside the system. This does not add Stripe, Twilio, SMS
 
 ## Agent Fields
 
-Add these optional fields to an existing agent record:
+Add these optional fields to an existing agent record. Coverage fields activate beta lead gating. Metadata fields alone do not.
 
 ```json
 {
@@ -22,13 +22,30 @@ Add these optional fields to an existing agent record:
 }
 ```
 
-The access code accepts DynamoDB lists, string sets, normal strings, or comma-separated strings. Empty coverage means no restriction for that dimension. For example, an active beta customer with `verticals=real_estate` and no ZIP fields can see approved/published real estate leads in all ZIPs that match other configured coverage.
+Coverage fields:
+
+- `verticals`
+- `markets`
+- `zip_codes`
+- `zip_prefixes`
+
+Metadata fields:
+
+- `status`
+- `plan_name`
+- `monthly_price`
+- `sms_enabled`
+- `phone`
+
+The access code accepts DynamoDB lists, string sets, normal strings, or comma-separated strings for coverage. At least one coverage field must be present and non-empty before beta gating applies. Empty coverage means no restriction for that dimension after gating is active. For example, an active beta customer with `verticals=real_estate` and no ZIP fields can see approved/published real estate leads in all ZIPs that match other configured coverage.
+
+An agent record with only metadata fields, such as `status`, `phone`, `sms_enabled`, `monthly_price`, or `plan_name`, keeps the backward-compatible `/v1/leads/list` behavior and is not beta-gated.
 
 ## Visibility Rules
 
-For an authenticated agent with beta access fields:
+For an authenticated agent with beta coverage fields:
 
-- `status=inactive` returns an empty lead list.
+- `status=inactive` returns an empty lead list only after beta gating is active from a coverage field.
 - `status=active` or missing status with coverage fields applies coverage filters.
 - Candidate-origin leads must have a `candidate_id`, `review_status=approved`, and `published=true`.
 - If `verticals` is set, lead `vertical` must match one value.

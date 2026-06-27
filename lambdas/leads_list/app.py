@@ -21,14 +21,16 @@ JWT_SECRET_PARAM = os.environ.get("JWT_SECRET_PARAM", "/buyersboard/dev/jwt_secr
 
 GSI_NAME = "zip_prefix_created_index"
 DEFAULT_LIMIT = int(os.environ.get("LIST_LIMIT", "24"))
-BETA_ACCESS_FIELDS = (
-    "status",
-    "plan_name",
-    "monthly_price",
+BETA_COVERAGE_FIELDS = (
     "verticals",
     "markets",
     "zip_codes",
     "zip_prefixes",
+)
+BETA_METADATA_FIELDS = (
+    "status",
+    "plan_name",
+    "monthly_price",
     "sms_enabled",
     "phone",
 )
@@ -205,7 +207,7 @@ def _normalized_set(value: Any) -> set[str]:
 def _agent_has_beta_fields(agent: Optional[Dict[str, Any]]) -> bool:
     if not agent:
         return False
-    return any(field in agent and not _is_blank(agent.get(field)) for field in BETA_ACCESS_FIELDS)
+    return any(field in agent and not _is_blank(agent.get(field)) for field in BETA_COVERAGE_FIELDS)
 
 def _customer_access(agent: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not _agent_has_beta_fields(agent):
