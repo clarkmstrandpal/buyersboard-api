@@ -36,6 +36,8 @@ DEFAULT_IMPORT_URL = "https://2v0q4zm2v6.execute-api.us-east-1.amazonaws.com/dev
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_FETCH_BYTES = 1_000_000
 DEFAULT_USER_AGENT = "ListlyHomesLeadScout/0.1 (+https://listlyhomes.com)"
+ACCEPT_HEADER = "application/rss+xml, application/xml, text/xml, */*"
+ACCEPT_LANGUAGE_HEADER = "en-US,en;q=0.9"
 
 
 class CraigslistRssError(RuntimeError):
@@ -122,8 +124,8 @@ def fetch_feed_items(feed_url: str, limit: int, user_agent: str) -> list[dict[st
         feed_url,
         headers={
             "User-Agent": user_agent,
-            "Accept": "application/rss+xml, application/xml, text/xml, */*",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": ACCEPT_HEADER,
+            "Accept-Language": ACCEPT_LANGUAGE_HEADER,
         },
     )
     try:
@@ -371,6 +373,14 @@ def discover_craigslist_rss(
     return candidates, rejected, diagnostics
 
 
+def debug_request_headers(user_agent: str) -> dict[str, str]:
+    return {
+        "User-Agent": user_agent,
+        "Accept": ACCEPT_HEADER,
+        "Accept-Language": ACCEPT_LANGUAGE_HEADER,
+    }
+
+
 def write_output(path: str | None, payload: Any) -> None:
     text = json.dumps(payload, indent=2, sort_keys=True)
     if path:
@@ -432,6 +442,12 @@ def main() -> int:
     report["raw_result_count"] = discovery_diagnostics["raw_result_count"]
     report["dated_candidate_count"] = discovery_diagnostics["dated_candidate_count"]
     report["stale_rejected_count"] = discovery_diagnostics["stale_rejected_count"]
+    if args.debug:
+        report.setdefault("debug", {})
+        report["debug"]["request_user_agent"] = args.user_agent
+        report["debug"]["request_headers"] = debug_request_headers(args.user_agent)
+        report["debug"]["feed_urls"] = feed_urls
+        report["debug"]["rss_items"] = discovery_diagnostics.get("debug", {}).get("items", [])
     write_output(args.output, report)
 
     if not args.import_url or not args.token:
