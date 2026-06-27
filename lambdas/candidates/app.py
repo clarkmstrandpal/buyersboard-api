@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import boto3
+from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Attr, Key
 
 from common.resp import err, ok  # type: ignore
@@ -17,14 +18,19 @@ from common.resp import err, ok  # type: ignore
 
 JWT_SECRET_PARAM = os.environ.get("JWT_SECRET_PARAM", "/buyersboard/dev/jwt_secret")
 VALID_STATUSES = {"new", "good", "maybe", "rejected", "duplicate", "sent", "archived"}
+REVIEW_STATUSES = {"pending", "approved", "rejected"}
 ACTION_STATUS = {
     "good": "good",
     "maybe": "maybe",
     "rejected": "rejected",
+    "reject": "rejected",
     "duplicate": "duplicate",
     "archive": "archived",
     "archived": "archived",
 }
+APPROVE_ACTIONS = {"approve", "approved", "good"}
+PUBLISH_ACTIONS = {"publish", "approve_publish", "approve_and_publish", "send_to_leads"}
+UNPUBLISH_ACTIONS = {"unpublish", "unpublished"}
 LIST_FILTERS = (
     "market_slug",
     "market",
@@ -34,6 +40,12 @@ LIST_FILTERS = (
     "state",
     "source",
     "status",
+    "review_status",
+    "published",
+    "vertical",
+    "lead_type",
+    "urgency",
+    "intent",
     "intent_guess",
     "role_guess",
 )
@@ -81,6 +93,19 @@ def _to_decimal(value: Any) -> Optional[Decimal]:
         return Decimal(str(value))
     except Exception:
         return None
+
+
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return default
 
 
 def _parse_body(event: Dict[str, Any]) -> Any:
@@ -163,36 +188,75 @@ def _filter_empty(item: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in item.items() if v is not None and v != ""}
 
 
+def _review_status(value: Any) -> str:
+    status = (_to_str(value) or "pending").lower()
+    return status if status in REVIEW_STATUSES else "pending"
+
+
+def _with_candidate_defaults(item: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(item)
+    out["review_status"] = _review_status(out.get("review_status"))
+    out["published"] = _to_bool(out.get("published"), False)
+    if "intent" not in out and out.get("intent_guess"):
+        out["intent"] = out.get("intent_guess")
+    if "original_text" not in out:
+        original_text = _to_str(out.get("original_text")) or _to_str(out.get("snippet")) or _to_str(out.get("message"))
+        if original_text:
+            out["original_text"] = original_text
+    if "summary" not in out:
+        summary = _to_str(out.get("summary")) or _to_str(out.get("message")) or _to_str(out.get("snippet")) or _to_str(out.get("title"))
+        if summary:
+            out["summary"] = summary
+    return out
+
+
 def _normalize_candidate(raw: Dict[str, Any]) -> Dict[str, Any]:
     created_at, created_ts = _now()
     candidate_id = _to_str(raw.get("candidate_id")) or str(uuid.uuid4())
     status = (_to_str(raw.get("status")) or "new").lower()
     if status not in VALID_STATUSES:
         status = "new"
+    review_status = _review_status(raw.get("review_status"))
+    published = _to_bool(raw.get("published"), False)
+    snippet = _to_str(raw.get("snippet"))
+    message = _to_str(raw.get("message"))
+    summary = _to_str(raw.get("summary")) or message or snippet or _to_str(raw.get("title"))
+    intent = _to_str(raw.get("intent")) or _to_str(raw.get("intent_guess"))
+    original_text = _to_str(raw.get("original_text")) or snippet or message
 
     item: Dict[str, Any] = {
         "candidate_id": candidate_id,
         "title": _to_str(raw.get("title")),
-        "snippet": _to_str(raw.get("snippet")),
-        "message": _to_str(raw.get("message")),
+        "snippet": snippet,
+        "message": message,
+        "summary": summary,
+        "original_text": original_text,
         "source": _to_str(raw.get("source")),
         "source_url": _to_str(raw.get("source_url")),
+        "source_post_date": _to_str(raw.get("source_post_date")),
         "market": _to_str(raw.get("market")),
         "market_slug": _to_str(raw.get("market_slug")),
         "county": _to_str(raw.get("county")),
         "city": _to_str(raw.get("city")),
         "state": _to_str(raw.get("state")),
         "zip": _to_str(raw.get("zip")),
+        "vertical": _to_str(raw.get("vertical")),
+        "lead_type": _to_str(raw.get("lead_type")) or _to_str(raw.get("role_guess")),
+        "urgency": _to_str(raw.get("urgency")),
+        "intent": intent,
         "role_guess": _to_str(raw.get("role_guess")),
         "intent_guess": _to_str(raw.get("intent_guess")),
         "intent_score": _to_decimal(raw.get("intent_score")),
         "search_query": _to_str(raw.get("search_query")),
         "contact_method": _to_str(raw.get("contact_method")),
         "status": status,
+        "review_status": review_status,
+        "published": published,
         "review_notes": _to_str(raw.get("review_notes")),
         "created_at": _to_str(raw.get("created_at")) or created_at,
         "created_ts": int(raw.get("created_ts") or created_ts),
         "reviewed_at": _to_str(raw.get("reviewed_at")),
+        "reviewed_by": _to_str(raw.get("reviewed_by")),
         "promoted_lead_id": _to_str(raw.get("promoted_lead_id")),
     }
     return _filter_empty(item)
@@ -291,7 +355,15 @@ def _build_filter(params: Dict[str, str], skip: Iterable[str] = ()) -> Any:
             continue
         value = _to_str(params.get(field))
         if value:
-            cond = Attr(field).eq(value)
+            if field == "review_status" and value.lower() == "pending":
+                cond = Attr(field).eq("pending") | Attr(field).not_exists()
+            elif field == "published":
+                published = _to_bool(value, False)
+                cond = Attr(field).eq(published)
+                if not published:
+                    cond = cond | Attr(field).not_exists()
+            else:
+                cond = Attr(field).eq(value)
             filt = cond if filt is None else filt & cond
     return filt
 
@@ -321,7 +393,7 @@ def _list(event: Dict[str, Any]) -> Dict[str, Any]:
         kwargs["FilterExpression"] = filt
 
     resp = table.query(**kwargs) if market_slug else table.scan(**kwargs)
-    items = resp.get("Items", [])
+    items = [_with_candidate_defaults(item) for item in resp.get("Items", [])]
     if not market_slug:
         items.sort(key=lambda x: x.get("created_ts", 0), reverse=True)
 
@@ -349,56 +421,134 @@ def _candidate_to_lead(candidate: Dict[str, Any]) -> Dict[str, Any]:
         "title": _to_str(candidate.get("title")),
         "message": message,
         "description": _to_str(candidate.get("snippet")),
+        "summary": _to_str(candidate.get("summary")) or message,
+        "original_text": _to_str(candidate.get("original_text")),
         "city": _to_str(candidate.get("city")),
         "state": _to_str(candidate.get("state")),
+        "market": _to_str(candidate.get("market")),
+        "vertical": _to_str(candidate.get("vertical")),
+        "lead_type": _to_str(candidate.get("lead_type")) or _to_str(candidate.get("role_guess")),
+        "urgency": _to_str(candidate.get("urgency")),
         "role": _to_str(candidate.get("role_guess")),
-        "intent": _to_str(candidate.get("intent_guess")),
+        "intent": _to_str(candidate.get("intent")) or _to_str(candidate.get("intent_guess")),
         "contact_method": _to_str(candidate.get("contact_method")),
+        "review_status": "approved",
+        "published": True,
+        "source_post_date": _to_str(candidate.get("source_post_date")),
         "candidate_id": candidate.get("candidate_id"),
     }
     return _filter_empty(item)
 
 
-def _action(event: Dict[str, Any]) -> Dict[str, Any]:
+def _reviewed_by(agent: Dict[str, Any]) -> Optional[str]:
+    return _to_str(agent.get("email")) or _to_str(agent.get("sub"))
+
+
+def _set_promoted_lead_visibility(lead_id: Optional[str], published: bool, review_status: str = "approved") -> None:
+    if not lead_id:
+        return
+    try:
+        _leads_table().update_item(
+            Key={"id": lead_id},
+            UpdateExpression="SET review_status = :review_status, published = :published",
+            ConditionExpression="attribute_exists(id)",
+            ExpressionAttributeValues={":review_status": review_status, ":published": published},
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            print("WARN: promoted lead not found for visibility update", lead_id)
+            return
+        raise
+
+
+def _action(event: Dict[str, Any], agent: Dict[str, Any]) -> Dict[str, Any]:
     body = _parse_body(event)
     if not isinstance(body, dict):
         return err("body must be a JSON object", 400, _origin())
 
     candidate_id = _to_str(body.get("candidate_id"))
     action = _to_str(body.get("action"))
+    requested_review_status = _to_str(body.get("review_status"))
     if not candidate_id:
         return err("candidate_id is required", 400, _origin())
     if not action:
         return err("action is required", 400, _origin())
+    if requested_review_status and requested_review_status.lower() not in REVIEW_STATUSES:
+        return err("review_status must be pending, approved, or rejected", 400, _origin())
 
     table = _candidates_table()
     resp = table.get_item(Key={"candidate_id": candidate_id})
     candidate = resp.get("Item")
     if not candidate:
         return err("candidate not found", 404, _origin())
+    candidate = _with_candidate_defaults(candidate)
 
     reviewed_at, _ = _now()
     review_notes = _to_str(body.get("review_notes"))
+    reviewed_by = _reviewed_by(agent)
 
     promoted_lead_id = candidate.get("promoted_lead_id")
-    if action == "send_to_leads":
+    action_key = action.lower()
+    new_status = candidate.get("status", "new")
+    new_review_status = candidate.get("review_status", "pending")
+    new_published = _to_bool(candidate.get("published"), False)
+
+    if action_key in PUBLISH_ACTIONS:
         if not promoted_lead_id:
             lead = _candidate_to_lead(candidate)
             _leads_table().put_item(Item=lead)
             promoted_lead_id = lead["id"]
+        else:
+            _set_promoted_lead_visibility(_to_str(promoted_lead_id), True)
         new_status = "sent"
-    elif action in ACTION_STATUS:
-        new_status = ACTION_STATUS[action]
+        new_review_status = "approved"
+        new_published = True
+    elif action_key in APPROVE_ACTIONS:
+        new_status = "good"
+        new_review_status = "approved"
+        new_published = False
+        _set_promoted_lead_visibility(_to_str(promoted_lead_id), False, "approved")
+    elif action_key in {"reject", "rejected"}:
+        new_status = "rejected"
+        new_review_status = "rejected"
+        new_published = False
+        _set_promoted_lead_visibility(_to_str(promoted_lead_id), False, "rejected")
+    elif action_key in UNPUBLISH_ACTIONS:
+        new_published = False
+        if new_review_status == "approved":
+            new_status = "good"
+        _set_promoted_lead_visibility(_to_str(promoted_lead_id), False)
+    elif action_key in ACTION_STATUS:
+        new_status = ACTION_STATUS[action_key]
+        if new_status in {"rejected", "duplicate", "archived"}:
+            new_review_status = "rejected"
+            new_published = False
+            _set_promoted_lead_visibility(_to_str(promoted_lead_id), False, "rejected")
+        elif new_status == "maybe":
+            new_review_status = "pending"
+            new_published = False
+            _set_promoted_lead_visibility(_to_str(promoted_lead_id), False, "pending")
     else:
         return err("unsupported action", 400, _origin())
 
     expr_names = {"#status": "status"}
-    expr_values = {":status": new_status, ":reviewed_at": reviewed_at}
-    update_expr = "SET #status = :status, reviewed_at = :reviewed_at"
+    expr_values = {
+        ":status": new_status,
+        ":review_status": new_review_status,
+        ":published": new_published,
+        ":reviewed_at": reviewed_at,
+    }
+    update_expr = (
+        "SET #status = :status, review_status = :review_status, "
+        "published = :published, reviewed_at = :reviewed_at"
+    )
 
     if review_notes is not None:
         update_expr += ", review_notes = :review_notes"
         expr_values[":review_notes"] = review_notes
+    if reviewed_by:
+        update_expr += ", reviewed_by = :reviewed_by"
+        expr_values[":reviewed_by"] = reviewed_by
     if promoted_lead_id:
         update_expr += ", promoted_lead_id = :promoted_lead_id"
         expr_values[":promoted_lead_id"] = promoted_lead_id
@@ -422,14 +572,15 @@ def handler(event, context):
 
     path = event.get("rawPath") or event.get("path") or ""
     try:
-        if not _require_agent(event):
+        agent = _require_agent(event)
+        if not agent:
             return err("missing or invalid bearer token", 401, origin)
         if method == "POST" and path.endswith("/v1/candidates/import"):
             return _import(event)
         if method == "GET" and path.endswith("/v1/candidates/list"):
             return _list(event)
         if method == "POST" and path.endswith("/v1/candidates/action"):
-            return _action(event)
+            return _action(event, agent)
         return err("not found", 404, origin)
     except ValueError as exc:
         return err(str(exc), 400, origin)
