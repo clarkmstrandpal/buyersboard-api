@@ -41,6 +41,16 @@ LIGHT_KEYS = (
     "last_name",
     "phone",
     "created_at",
+    "market",
+    "vertical",
+    "lead_type",
+    "urgency",
+    "summary",
+    "original_text",
+    "source_post_date",
+    "review_status",
+    "published",
+    "candidate_id",
 )
 
 def _json(body: Any) -> str:
@@ -86,6 +96,14 @@ def _light(item: Dict[str, Any]) -> Dict[str, Any]:
         out["status"] = "claimed" if item.get("claimed") else "new"
     return out
 
+def _and_filter(existing, cond):
+    return cond if existing is None else (existing & cond)
+
+def _customer_visible_filter():
+    approved_candidate = Attr("review_status").eq("approved") & Attr("published").eq(True)
+    legacy_non_candidate = Attr("candidate_id").not_exists()
+    return legacy_non_candidate | approved_candidate
+
 def handler(event, context):
     try:
         qs = event.get("queryStringParameters") or {}
@@ -117,19 +135,16 @@ def handler(event, context):
 
         status = (qs.get("status") or "").strip()
 
-        # build filter
-        filt = None
+        # build filter. Candidate-origin leads are customer-visible only after review/publish.
+        filt = _customer_visible_filter()
         if status:
-            filt = Attr("status").eq(status)
+            filt = _and_filter(filt, Attr("status").eq(status))
         if min_price is not None:
-            cond = Attr("price").gte(min_price)
-            filt = cond if filt is None else (filt & cond)
+            filt = _and_filter(filt, Attr("price").gte(min_price))
         if max_price is not None:
-            cond = Attr("price").lte(max_price)
-            filt = cond if filt is None else (filt & cond)
+            filt = _and_filter(filt, Attr("price").lte(max_price))
         if zip_code:
-            cond = Attr("zip").eq(zip_code)
-            filt = cond if filt is None else (filt & cond)
+            filt = _and_filter(filt, Attr("zip").eq(zip_code))
 
         # prefer GSI when prefix present
         if zip_prefix:
